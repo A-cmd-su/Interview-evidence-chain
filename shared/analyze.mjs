@@ -7,6 +7,9 @@ export const KNOWLEDGE_BASE = {
   'knowledge.redis-cache-aside': { title: 'Redis Cache-Aside 官方文档', summary: '缓存旁路模式覆盖命中、回源、TTL、写入失效与缓存击穿风险。', url: 'https://redis.io/docs/latest/develop/use-cases/cache-aside/', verifiedAt: '2026-09-09' },
   'knowledge.mysql-indexes': { title: 'MySQL Optimization and Indexes 官方手册', summary: '索引需要结合查询条件与执行计划验证，同时会增加写入维护成本。', url: 'https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html', verifiedAt: '2026-09-09' },
   'knowledge.rubric': { title: 'Evidence Loop 可解释训练量表', summary: '项目自建规则，仅用于训练反馈；每个分数必须绑定回答片段、岗位要求和量表版本。', url: null, verifiedAt: '2026-09-09' },
+  'knowledge.interview-evidence': { title: '面试证据链方法说明', summary: '将岗位要求拆成可观察能力，再用回答原文、个人动作、结果和边界条件支持训练反馈；缺少证据时标记待补充。', url: null, verifiedAt: '2026-09-09' },
+  'knowledge.interview-star': { title: 'STAR 项目回答结构', summary: '用情境、任务、行动、结果组织项目经历，帮助训练者补齐背景、个人贡献和结果。', url: null, verifiedAt: '2026-09-09' },
+  'knowledge.interview-clarification': { title: '经历澄清与一致性原则', summary: '简历与回答不一致时只提出澄清问题，不直接推断造假；需要候选人补充范围、动作和验证方式。', url: null, verifiedAt: '2026-09-09' },
 };
 export const DEMO = {
   jd: 'Java 后端工程师。熟悉 Redis 缓存及高并发处理，能够设计故障降级方案。熟悉数据库索引与慢查询优化。能够说明个人项目职责和性能验证结果。',
@@ -102,7 +105,7 @@ export function analyzeRules(input, now = new Date()) {
     // Total is deliberately withheld while any dimension lacks evidence.
     score: assessed.length === DIMENSIONS.length ? Math.round(assessed.reduce((n, s) => n + s.score, 0) / 25 * 100) : null,
     coverage: Math.round(assessed.length / DIMENSIONS.length * 100),
-    evidence: assessed.map(s => s.evidence), missing, consistency, knowledge: KNOWLEDGE_BASE[skill === 'redis' ? 'knowledge.redis-cache-aside' : skill === 'database' ? 'knowledge.mysql-indexes' : 'knowledge.rubric'],
+    evidence: assessed.map(s => s.evidence), missing, consistency, knowledge: KNOWLEDGE_BASE['knowledge.interview-evidence'], knowledgeSources: [KNOWLEDGE_BASE['knowledge.interview-evidence'], KNOWLEDGE_BASE['knowledge.interview-star'], KNOWLEDGE_BASE['knowledge.interview-clarification'], ...(skill === 'redis' ? [KNOWLEDGE_BASE['knowledge.redis-cache-aside']] : skill === 'database' ? [KNOWLEDGE_BASE['knowledge.mysql-indexes']] : [])],
     followUp: nextGap && asked.length < 2 ? { gap: nextGap, question: GAP_QUESTIONS[nextGap] } : null,
     followUpReason: asked.length >= 2 ? '已达到每道主问题最多两轮追问。' : !nextGap ? '本轮没有新的待补充槽位。' : '',
     warning: '规则模式仅识别文本线索，不验证经历真伪、技术正确性或招聘胜任力。',
