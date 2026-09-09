@@ -9,7 +9,7 @@ test('provider config accepts HTTPS public endpoint and normalizes slash', () =>
 });
 
 test('provider config rejects unsafe remote URLs', () => {
-  for (const baseUrl of ['http://api.example.com/v1', 'https://127.0.0.1/v1', 'https://service.local/v1', 'https://api.example.com/v1/chat/completions']) {
+  for (const baseUrl of ['http://api.example.com/v1', 'https://192.168.1.20/v1', 'https://service.local/v1', 'https://api.example.com/v1/chat/completions']) {
     assert.throws(() => validateConfig({ ...base, baseUrl }), /地址|远程|私有|根地址/);
   }
   assert.throws(() => validateConfig({ ...base, apiKey: '', baseUrl: 'https://api.example.com/v1' }), /API Key/);
@@ -34,3 +34,4 @@ test('completion converts provider failures to safe errors', async () => {
   await assert.rejects(() => completion(base, [], { fetchImpl: async () => new Response('private-provider-secret', { status: 500 }), timeout: 1000 }), /HTTP 500/);
   await assert.rejects(() => completion(base, [], { fetchImpl: async () => { throw new Error('private-provider-secret'); }, timeout: 1000 }), /连接失败或超时/);
 });
+
