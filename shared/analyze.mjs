@@ -3,6 +3,11 @@ export const RULE_VERSION = 'evidence-rubric-0.2.0';
 export const SCHEMA_VERSION = 'evidence-2';
 export const DIMENSIONS = ['相关性', '技术深度', '个人贡献', '量化结果', '表达结构'];
 export const GAP_NAMES = ['背景', '技术方案', '个人贡献', '量化结果', '故障兜底'];
+export const KNOWLEDGE_BASE = {
+  'knowledge.redis-cache-aside': { title: 'Redis Cache-Aside 官方文档', summary: '缓存旁路模式覆盖命中、回源、TTL、写入失效与缓存击穿风险。', url: 'https://redis.io/docs/latest/develop/use-cases/cache-aside/', verifiedAt: '2026-09-09' },
+  'knowledge.mysql-indexes': { title: 'MySQL Optimization and Indexes 官方手册', summary: '索引需要结合查询条件与执行计划验证，同时会增加写入维护成本。', url: 'https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html', verifiedAt: '2026-09-09' },
+  'knowledge.rubric': { title: 'Evidence Loop 可解释训练量表', summary: '项目自建规则，仅用于训练反馈；每个分数必须绑定回答片段、岗位要求和量表版本。', url: null, verifiedAt: '2026-09-09' },
+};
 export const DEMO = {
   jd: 'Java 后端工程师。熟悉 Redis 缓存及高并发处理，能够设计故障降级方案。熟悉数据库索引与慢查询优化。能够说明个人项目职责和性能验证结果。',
   resume: '电商项目：负责系统优化，使用 Redis 缓存商品详情。参与数据库慢查询排查。',
@@ -75,10 +80,10 @@ export function analyzeRules(input, now = new Date()) {
     const rubricId = `rubric.${i + 1}.${RULE_VERSION}`;
     // A missing source is uncertainty, not a fabricated zero or a guessed score.
     const span = sourceSpans[i];
-    const evidence = span && requirement ? { ...span, id: `answer.${i + 1}`, requirementId: requirement.id, knowledgeId: rubricId } : null;
+    const evidence = span && requirement ? { ...span, id: `answer.${i + 1}`, requirementId: requirement.id, knowledgeId: 'knowledge.rubric', rubricId } : null;
     return { dimension, score: evidence ? levels[i] : null, max: 5,
       status: evidence ? 'supported' : 'insufficient_evidence', evidence, requirement,
-      rubric: { id: rubricId, title: `${dimension}训练量表`, text: RUBRIC_TEXT[dimension], source: '项目自建量表 v0.2，非官方认证标准' },
+      rubric: { id: rubricId, title: `${dimension}训练量表`, text: RUBRIC_TEXT[dimension], source: KNOWLEDGE_BASE['knowledge.rubric'].title },
       note: evidence ? '仅依据可观察线索给出保守训练评分，需结合追问复核。' : '证据不足，不计算该维度分数。' };
   });
   const slots = { 背景: background, 技术方案: technical, 个人贡献: contribution, 量化结果: quant, 故障兜底: fallback };
@@ -97,7 +102,7 @@ export function analyzeRules(input, now = new Date()) {
     // Total is deliberately withheld while any dimension lacks evidence.
     score: assessed.length === DIMENSIONS.length ? Math.round(assessed.reduce((n, s) => n + s.score, 0) / 25 * 100) : null,
     coverage: Math.round(assessed.length / DIMENSIONS.length * 100),
-    evidence: assessed.map(s => s.evidence), missing, consistency,
+    evidence: assessed.map(s => s.evidence), missing, consistency, knowledge: KNOWLEDGE_BASE[skill === 'redis' ? 'knowledge.redis-cache-aside' : skill === 'database' ? 'knowledge.mysql-indexes' : 'knowledge.rubric'],
     followUp: nextGap && asked.length < 2 ? { gap: nextGap, question: GAP_QUESTIONS[nextGap] } : null,
     followUpReason: asked.length >= 2 ? '已达到每道主问题最多两轮追问。' : !nextGap ? '本轮没有新的待补充槽位。' : '',
     warning: '规则模式仅识别文本线索，不验证经历真伪、技术正确性或招聘胜任力。',
