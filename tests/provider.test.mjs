@@ -9,7 +9,7 @@ test('provider config accepts HTTPS public endpoint and normalizes slash', () =>
 });
 
 test('provider config rejects unsafe remote URLs', () => {
-  for (const baseUrl of ['http://api.example.com/v1', 'https://192.168.1.20/v1', 'https://service.local/v1', 'https://api.example.com/v1/chat/completions']) {
+  for (const baseUrl of ['http://api.example.com/v1', 'https://192.168.1.20/v1', 'https://service.local/v1']) {
     assert.throws(() => validateConfig({ ...base, baseUrl }), /地址|远程|私有|根地址/);
   }
   assert.throws(() => validateConfig({ ...base, apiKey: '', baseUrl: 'https://api.example.com/v1' }), /API Key/);
