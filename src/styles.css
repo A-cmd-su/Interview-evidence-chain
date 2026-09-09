@@ -4,3 +4,5 @@
 /* Offline-first controls */
 .file-help{display:block;margin-top:6px;color:#71839f;font-size:9px}.file-input{margin-top:7px!important;padding:7px!important;font-size:10px!important;background:#101a2d!important}
 dialog.modal{width:min(440px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:27px;border:1px solid #3a4e70;border-radius:15px;background:#121b2e;color:#e8edf7;box-shadow:0 25px 80px #02040d99}dialog.modal::backdrop{background:#050914b8}.modal:focus{outline:none}.consent{display:block;margin-top:12px;color:#91a1ba;font-size:9px;line-height:1.6}.consent input{display:inline-block;width:auto;margin:0 6px 0 0}.insufficient{padding:12px;background:#1a2131;border:1px solid #34425c;border-radius:7px;color:#9aaac1;font-size:10px;line-height:1.6}.rubric-note{margin-top:12px;padding:10px;background:#171d31;border-left:2px solid #8d76d7;color:#a5b2c8;font-size:9px;line-height:1.6}
+
+.claim-item{padding:8px 0;border-bottom:1px solid #29354b}.claim-item:last-of-type{border-bottom:0}.claim-item p{margin:5px 0 8px!important}.knowledge a{color:#8db5ff;font-size:10px}.knowledge small{display:block;color:#71839f;margin-top:8px;font-size:9px}
