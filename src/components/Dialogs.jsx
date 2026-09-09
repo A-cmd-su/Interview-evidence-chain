@@ -10,9 +10,11 @@ export function Dialog({ title, children, close }) {
 }
 export function ModelModal({ close, saved }) {
   const [form, setForm] = useState({ provider: 'OpenAI Compatible / 中转', baseUrl: '', model: '', apiKey: '', jsonMode: false });
+  const formRef = useRef(null);
   const [busy, setBusy] = useState(''); const [message, setMessage] = useState('');
   const change = (name, value) => { setForm(f => ({ ...f, [name]: value })); setMessage(''); };
   async function send(action) {
+    if (!formRef.current.reportValidity()) return;
     setBusy(action); setMessage('');
     try {
       const data = await api(action === 'test' ? '/models/test' : '/models', { method: 'POST', body: form });
@@ -21,8 +23,8 @@ export function ModelModal({ close, saved }) {
     } catch (e) { setMessage(e.message); } finally { setBusy(''); }
   }
   return <Dialog title="模型设置" close={close}>
-    <p className="modal-desc">兼容 Chat Completions 协议。可填写云模型、中转 API 根地址，或本机 Ollama / LM Studio 的兼容端点。原生协议需额外适配。</p>
-    <form onSubmit={e => { e.preventDefault(); send('save'); }}>
+    <p className="modal-desc">兼容 Chat Completions 协议。可填写云模型、中转 API 根地址或完整 /chat/completions 地址，或本机 Ollama / LM Studio 的兼容端点。原生协议需额外适配。</p>
+    <form ref={formRef} onSubmit={e => { e.preventDefault(); send('save'); }}>
       <fieldset disabled={Boolean(busy)}>
         <label>服务类型<select value={form.provider} onChange={e => change('provider', e.target.value)}>
           <option>OpenAI Compatible / 中转</option><option>DeepSeek / 通义 / Kimi 兼容接口</option><option>Ollama / LM Studio 本机接口</option>
@@ -35,7 +37,7 @@ export function ModelModal({ close, saved }) {
         <div className="modal-actions"><button type="button" className="secondary" onClick={() => send('test')}>测试连接</button><button className="primary" type="submit">保存配置</button></div>
       </fieldset>
     </form>
-    {busy && <p role="status">{busy === 'test' ? '正在实际请求模型服务…' : '保存中…'}</p>}
+    {busy && <p role="status">{busy === 'test' ? '正在请求模型服务，最长等待 60 秒…' : '保存中…'}</p>}
     {message && <p className="notice" role="status">{message}</p>}
   </Dialog>;
 }

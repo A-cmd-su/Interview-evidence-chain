@@ -19,8 +19,8 @@ Use this skill for all work on the interview evidence-chain platform.
 - Never send full histories when a compact session summary plus the latest answer is sufficient.
 - Summarize long documents once, then operate on the summary and source spans.
 - Batch independent extraction tasks when the provider supports it, but keep scoring evidence independently verifiable.
-- Do not call a remote model when deterministic rules, local fixtures, or cached results are sufficient.
-- On timeout, malformed JSON, or quota failure, fall back to cached results, rules, or MockProvider and label the source clearly.
+- Reuse validated online results when inputs and configuration match. Rule validation supplements model output; it is not an offline product mode.
+- On timeout, malformed JSON, or quota failure, return an explicit error. Never substitute rules, mock results, or a prior report for the failed request; the user requires online-only analysis.
 
 ## Evidence-chain invariant
 

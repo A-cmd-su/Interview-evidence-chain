@@ -6,7 +6,8 @@ export function validateConfig(body) {
     if (typeof body[key] !== 'string' || body[key].length > max) throw new Error(`无效的 ${key}`);
   }
   if (!body.model.trim() || /[\r\n]/.test(body.model + body.apiKey)) throw new Error('模型名称或 Key 格式不正确');
-  const url = new URL(body.baseUrl);
+  let url;
+  try { url = new URL(body.baseUrl.trim()); } catch { throw new Error('API 地址格式不正确，请填写完整的 http:// 或 https:// 地址'); }
   const local = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
   if (url.username || url.password || url.search || url.hash) throw new Error('地址不能包含用户名、密码、查询参数或片段');
   if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) throw new Error('远程中转必须使用 HTTPS；本机模型允许 HTTP');
@@ -19,7 +20,7 @@ export function validateConfig(body) {
 }
 
 export class ProviderError extends Error {}
-export async function completion(config, messages, { fetchImpl = fetch, timeout = 12000, maxTokens = 1400 } = {}) {
+export async function completion(config, messages, { fetchImpl = fetch, timeout = 60000, maxTokens = 1400 } = {}) {
   let response;
   try {
     response = await fetchImpl(`${config.baseUrl}/chat/completions`, {
@@ -28,10 +29,20 @@ export async function completion(config, messages, { fetchImpl = fetch, timeout 
       body: JSON.stringify({ model: config.model, messages, stream: false, max_tokens: maxTokens,
         ...(config.jsonMode ? { response_format: { type: 'json_object' } } : {}) }),
     });
-  } catch { throw new ProviderError('模型连接失败或超时，请检查服务、网络与超时设置'); }
+  } catch { throw new ProviderError('模型连接失败或超时（最长等待 60 秒），请检查 API 地址、网络、证书及模型服务'); }
   // Never expose arbitrary provider response bodies or keys in errors/logs.
-  if (!response.ok) throw new ProviderError(`模型服务返回 HTTP ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel();
+    const hints = { 400: '请求参数不兼容，请检查模型 ID、JSON 模式和 Chat Completions 协议',
+      401: 'API Key 无效或已过期', 403: 'Key 没有访问权限或服务限制了来源',
+      404: '接口路径或模型不存在，请核对 Base URL 是否需要 /v1，以及模型 ID',
+      429: '调用限额、余额或并发限制，请在供应商处检查',
+      500: '供应商内部错误，请稍后重试', 502: '中转上游不可用，请检查中转服务',
+      503: '模型服务暂时不可用', 504: '中转等待上游超时' };
+    throw new ProviderError(`模型服务返回 HTTP ${response.status}：${hints[response.status] || '请检查供应商服务状态'}`);
+  }
   if (Number(response.headers.get('content-length')) > 100000) throw new ProviderError('模型响应过大');
+  if (!response.body) throw new ProviderError('模型返回空响应，请核对 Chat Completions 地址');
   const reader = response.body.getReader(); let text = '', bytes = 0; const decoder = new TextDecoder();
   try {
     while (true) {

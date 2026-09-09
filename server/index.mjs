@@ -59,23 +59,19 @@ export function createApp(options = {}) {
         const input = Object.fromEntries(['jd', 'resume', 'answer', 'question', 'skill', 'asked'].filter(k => body[k] !== undefined).map(k => [k, body[k]]));
         const key = crypto.createHash('sha256').update(JSON.stringify({ input, mode: body.mode, config: s.config, version: RULE_VERSION, schema: SCHEMA_VERSION })).digest('hex');
         if (s.cache.has(key)) return json(res, 200, { ...s.cache.get(key), cached: true });
-        let result = analyzeRules(input);
-        if (body.mode === 'online') {
-          if (!s.config) throw new ProviderError('请先在模型设置中保存模型配置');
-          else {
-            if (s.busy) return json(res, 429, { error: '当前已有模型请求，请稍后重试' });
-            s.busy = true;
-            try {
-              const model = await onlineAnalysis(input, s.config, options);
-              // Model observations supplement the report; all numeric scores remain deterministic rubric scores.
-              result = { ...result, mode: 'online-assisted', model: s.config.model, modelObservations: model,
-                warning: `${result.warning} 在线语义观察仅作补充，分数仍由固定量表产生。` };
-            } catch (e) { throw e instanceof ProviderError ? e : new ProviderError('在线分析未完成，请检查模型服务'); }
-            finally { s.busy = false; }
-          }
-        }
-        { if (s.cache.size >= 40) s.cache.delete(s.cache.keys().next().value); s.cache.set(key, result); }
-        return json(res, 200, result);
+        if (!s.config) return json(res, 409, { error: '请先在模型设置中保存模型配置' });
+        if (s.busy) return json(res, 429, { error: '当前已有模型请求，请稍后重试' });
+        s.busy = true;
+        try {
+          const model = await onlineAnalysis(input, s.config, options);
+          // Fixed rubric is an evidence validator, never a substitute for a failed model request.
+          const result = { ...analyzeRules(input), mode: 'online-assisted', model: s.config.model,
+            modelObservations: model,
+            warning: '在线语义观察仅作补充，分数由固定量表产生；不验证经历真伪、技术正确性或招聘胜任力。' };
+          if (s.cache.size >= 40) s.cache.delete(s.cache.keys().next().value);
+          s.cache.set(key, result);
+          return json(res, 200, result);
+        } finally { s.busy = false; }
       }
       return json(res, 404, { error: '接口不存在' });
     } catch (e) { return json(res, e instanceof ProviderError ? 502 : 400, { error: e.message }); }

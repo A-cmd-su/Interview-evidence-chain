@@ -4,12 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently --kill-others \"npm run server\" \"npm run dev:web\"",
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
-    "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
-    "test": "node --test tests/*.test.mjs"
+    "dev:all": "npm run dev",
+    "test": "node --test tests/*.test.mjs",
+    "dev:web": "vite --host 127.0.0.1 --port 5173"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",

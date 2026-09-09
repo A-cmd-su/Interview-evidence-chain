@@ -35,3 +35,15 @@ test('completion converts provider failures to safe errors', async () => {
   await assert.rejects(() => completion(base, [], { fetchImpl: async () => { throw new Error('private-provider-secret'); }, timeout: 1000 }), /连接失败或超时/);
 });
 
+
+test('full chat endpoint normalizes once and localhost permits an empty key', () => {
+  const config = validateConfig({ ...base, baseUrl: 'http://localhost:11434/v1/chat/completions/', apiKey: '' });
+  assert.equal(config.baseUrl, 'http://localhost:11434/v1');
+  assert.equal(config.apiKey, '');
+});
+
+test('authentication and path errors have actionable, sanitized messages', async () => {
+  for (const [status, pattern] of [[401, /API Key/], [404, /接口路径或模型/], [429, /限额/]]) {
+    await assert.rejects(completion(base, [], { fetchImpl: async () => new Response('private-provider-secret', { status }) }), error => pattern.test(error.message) && !error.message.includes('private-provider-secret'));
+  }
+});
