@@ -12,7 +12,9 @@ export function validateConfig(body) {
   if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) throw new Error('远程中转必须使用 HTTPS；本机模型允许 HTTP');
   if (!local && (!url.hostname.includes('.') || /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(url.hostname) || url.hostname.endsWith('.local') || url.hostname.startsWith('['))) throw new Error('仅支持公开远程地址或本机模型，不接受私有网段');
   if (!local && !body.apiKey.trim()) throw new Error('远程服务需要 API Key');
-  if (url.pathname.replace(/\/$/, '').endsWith('/chat/completions')) throw new Error('请填写 API 根地址（通常以 /v1 结尾），不要包含 /chat/completions');
+  const path = url.pathname.replace(/\/$/, '');
+  const basePath = path.endsWith('/chat/completions') ? path.slice(0, -'/chat/completions'.length) : path;
+  url.pathname = basePath || '/';
   return { baseUrl: url.href.replace(/\/$/, ''), model: body.model.trim(), apiKey: body.apiKey.trim(), jsonMode: body.jsonMode === true };
 }
 

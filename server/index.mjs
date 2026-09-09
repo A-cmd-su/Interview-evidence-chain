@@ -55,13 +55,13 @@ export function createApp(options = {}) {
       }
       if (path === '/api/analyze') {
         validateInput(body);
-        if (!['offline', 'online'].includes(body.mode)) throw new Error('mode 必须为 offline 或 online');
+        if (body.mode !== 'online') throw new Error('当前版本仅支持在线模型');
         const input = Object.fromEntries(['jd', 'resume', 'answer', 'question', 'skill', 'asked'].filter(k => body[k] !== undefined).map(k => [k, body[k]]));
         const key = crypto.createHash('sha256').update(JSON.stringify({ input, mode: body.mode, config: s.config, version: RULE_VERSION, schema: SCHEMA_VERSION })).digest('hex');
         if (s.cache.has(key)) return json(res, 200, { ...s.cache.get(key), cached: true });
         let result = analyzeRules(input);
         if (body.mode === 'online') {
-          if (!s.config) result.fallbackReason = '未配置模型，已使用规则分析';
+          if (!s.config) throw new ProviderError('请先在模型设置中保存模型配置');
           else {
             if (s.busy) return json(res, 429, { error: '当前已有模型请求，请稍后重试' });
             s.busy = true;
@@ -70,11 +70,11 @@ export function createApp(options = {}) {
               // Model observations supplement the report; all numeric scores remain deterministic rubric scores.
               result = { ...result, mode: 'online-assisted', model: s.config.model, modelObservations: model,
                 warning: `${result.warning} 在线语义观察仅作补充，分数仍由固定量表产生。` };
-            } catch (e) { result.fallbackReason = e instanceof ProviderError ? e.message : '在线分析未完成，已使用规则分析'; }
+            } catch (e) { throw e instanceof ProviderError ? e : new ProviderError('在线分析未完成，请检查模型服务'); }
             finally { s.busy = false; }
           }
         }
-        if (!result.fallbackReason) { if (s.cache.size >= 40) s.cache.delete(s.cache.keys().next().value); s.cache.set(key, result); }
+        { if (s.cache.size >= 40) s.cache.delete(s.cache.keys().next().value); s.cache.set(key, result); }
         return json(res, 200, result);
       }
       return json(res, 404, { error: '接口不存在' });

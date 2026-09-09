@@ -27,7 +27,7 @@ export function ModelModal({ close, saved }) {
         <label>服务类型<select value={form.provider} onChange={e => change('provider', e.target.value)}>
           <option>OpenAI Compatible / 中转</option><option>DeepSeek / 通义 / Kimi 兼容接口</option><option>Ollama / LM Studio 本机接口</option>
         </select></label>
-        <label>API Base URL<input required type="url" value={form.baseUrl} onChange={e => change('baseUrl', e.target.value)} placeholder="https://your-provider.example/v1" /></label>
+        <label>API Base URL 或完整 Chat Completions 地址<input required type="url" value={form.baseUrl} onChange={e => change('baseUrl', e.target.value)} placeholder="https://api.example.com/v1（也支持 /chat/completions）" /></label>
         <label>模型名称<input required maxLength={160} value={form.model} onChange={e => change('model', e.target.value)} placeholder="供应商提供的完整模型 ID" /></label>
         <label>API Key（本机无鉴权服务可留空）<input type="password" autoComplete="off" maxLength={4096} value={form.apiKey} onChange={e => change('apiKey', e.target.value)} /></label>
         <label className="check-label"><input type="checkbox" checked={form.jsonMode} onChange={e => change('jsonMode', e.target.checked)} />请求 JSON object 格式（仅服务支持时勾选）</label>
