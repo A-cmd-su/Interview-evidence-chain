@@ -1,0 +1,222 @@
+import React from "react";
+import { ArrowRight, CornerDownRight, Check } from "lucide-react";
+export function Interview({
+  session,
+  question,
+  report,
+  records,
+  busy,
+  error,
+  changeAnswer,
+  submit,
+  choose,
+  follow,
+  finish,
+  openReport,
+  source,
+}) {
+  const ended = question.attempts.length > 0 && !question.ready;
+  return (
+    <div className="page">
+      <div className="interview-head">
+        <div>
+          <span className="number-label">02 / THINK OUT LOUD</span>
+          <h2>{session.title}</h2>
+          <p>
+            {session.originReportId
+              ? session.practiceKind === "targeted"
+                ? "专项练习"
+                : "同题复测"
+              : "按自己的节奏回答。好的追问，从具体的经历开始。"}
+          </p>
+        </div>
+        <div className="progress">
+          <span>
+            已回答 {session.questions.filter((q) => q.attempts.length).length} /{" "}
+            {session.questions.length} 道主问题
+          </span>
+          <div>
+            <i
+              style={{
+                width:
+                  (session.questions.filter((q) => q.attempts.length).length /
+                    session.questions.length) *
+                    100 +
+                  "%",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="capabilities">
+        {session.capabilities.map((c) => (
+          <button
+            key={c.id}
+            onClick={() =>
+              source({
+                title: c.label + " · 岗位依据",
+                text: session.jd,
+                span: c,
+              })
+            }
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <div className="interview-grid">
+        <aside className="question-list">
+          <span className="eyebrow">YOUR INTERVIEW PATH</span>
+          {session.questions.map((q, i) => (
+            <button
+              key={q.id}
+              disabled={Boolean(busy)}
+              className={question.id === q.id ? "selected" : ""}
+              onClick={() => choose(i)}
+            >
+              <b>{String(i + 1).padStart(2, "0")}</b>
+              <span>
+                {q.skill}
+                <small>{q.question}</small>
+              </span>
+              {q.attempts.length > 0 && (
+                <Check size={14} aria-label="已有回答" />
+              )}
+            </button>
+          ))}
+        </aside>
+        <section>
+          <div className="answer-card">
+            <span className="eyebrow">
+              {question.attempts.length && question.ready
+                ? "FOLLOW-UP · " + question.attempts.length + "/2"
+                : "QUESTION · " + (session.current + 1)}
+            </span>
+            <h3>
+              {question.ready
+                ? question.prompt
+                : report?.input.question || question.question}
+            </h3>
+            <p className="answer-instruction">{question.why}</p>
+            {question.ready ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submit();
+                }}
+              >
+                <label className="sr-only" htmlFor="answer">
+                  你的回答
+                </label>
+                <textarea
+                  id="answer"
+                  maxLength={8000}
+                  value={question.draft}
+                  disabled={Boolean(busy)}
+                  onChange={(e) => changeAnswer(e.target.value)}
+                  placeholder="具体说说：当时的背景、你做了什么、如何验证结果…"
+                />
+                <div className="answer-footer">
+                  <span>{question.draft.length} / 8000</span>
+                  <button
+                    className="primary"
+                    disabled={Boolean(busy) || !question.draft.trim()}
+                  >
+                    {busy === "analyze" ? "评估与复核中…" : "提交回答"}
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <blockquote className="submitted-answer">
+                {report?.input.answer}
+              </blockquote>
+            )}
+            {error && (
+              <div className="error" role="alert">
+                {error} 本次未生成报告，你的回答已保留。
+              </div>
+            )}
+            <div className="privacy">
+              每次提交通常包含初评与语义复核两次模型调用，均可能计费。
+            </div>
+          </div>
+          {ended && report && (
+            <div className="followup-card">
+              <span className="eyebrow">
+                {report.coverage}%{" "}
+                {report.semanticReview
+                  ? "维度获语义复核支持"
+                  : "历史引用覆盖，未经语义复核"}
+              </span>
+              <h3>
+                {report.followUp
+                  ? report.followUp.question
+                  : report.followUpReason}
+              </h3>
+              <p>
+                {report.missing.length
+                  ? "还需补充：" + report.missing.join("、")
+                  : "初评未检出新增信息缺口。"}
+              </p>
+              <div className="button-row">
+                {report.followUp && (
+                  <button
+                    className="primary"
+                    disabled={Boolean(busy)}
+                    onClick={follow}
+                  >
+                    <CornerDownRight size={16} />
+                    回答追问
+                  </button>
+                )}
+                <button
+                  className="secondary"
+                  onClick={() => openReport(report.id)}
+                >
+                  查看本题证据
+                </button>
+              </div>
+            </div>
+          )}
+          {question.attempts.length > 0 && (
+            <details className="turn-history">
+              <summary>本题已提交的 {question.attempts.length} 轮回答</summary>
+              {question.attempts.map((a, i) => (
+                <article key={a.reportId}>
+                  <small>{i === 0 ? "主问题" : "追问 " + i}</small>
+                  <b>{a.question}</b>
+                  <p>{a.answer}</p>
+                  <button
+                    className="text-button"
+                    onClick={() => openReport(a.reportId)}
+                  >
+                    查看该轮报告
+                  </button>
+                </article>
+              ))}
+            </details>
+          )}
+        </section>
+      </div>
+      <div className="interview-actions">
+        <button
+          className="text-button"
+          disabled={Boolean(busy)}
+          onClick={finish}
+        >
+          查看整场复盘
+        </button>
+        {session.current + 1 < session.questions.length && (
+          <button
+            className="secondary"
+            disabled={Boolean(busy)}
+            onClick={() => choose(session.current + 1)}
+          >
+            下一道主问题 <ArrowRight size={16} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
