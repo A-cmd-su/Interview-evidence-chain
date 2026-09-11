@@ -3,6 +3,7 @@ import { Cable, Save, ListRestart, ClipboardCheck } from "lucide-react";
 import { api } from "../api";
 import { resolveEndpoint } from "../../shared/modelConfig.mjs";
 import { Modal } from "./Modal";
+import { ModelProfiles } from "./ModelProfiles";
 
 const PRESETS = [
   ["custom", "自定义 / 中转", "", ""],
@@ -152,6 +153,7 @@ export function ModelSettings({ saved, close, onSave, onClear }) {
   }
   return (
     <Modal title="连接你的模型" close={close} locked={Boolean(busy)}>
+      <ModelProfiles saved={saved} onSave={onSave} close={close} />
       {error && (
         <div
           className="error connection-error"
@@ -392,7 +394,8 @@ export function ModelSettings({ saved, close, onSave, onClear }) {
       )}
       <p className="security">
         连接测试会发送一条短请求，可能计费。保存不会自动测试。Key
-        仅在本机后端会话内存中保留，重启或会话到期后需要重新填写。
+        默认仅在本机后端会话内存保留；可在模型档案中主动选择 Windows
+        凭据管理器长期保存。
       </p>
       {saved && (
         <button

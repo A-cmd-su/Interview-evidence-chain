@@ -1,5 +1,6 @@
 import { GAPS, isReviewedScore } from "../shared/analyze.mjs";
 import { sessionSnapshot } from "./state.js";
+import { difficultyProfile } from "../shared/difficulty.mjs";
 
 export function availableSessions(workspace) {
   const sessions = new Map();
@@ -18,6 +19,9 @@ export function availableSessions(workspace) {
         title: "历史面试记录",
         jd: report.input.jd,
         resume: report.input.resume,
+        difficulty: report.input.difficulty || null,
+        difficultyPolicy: report.difficultyPolicy || null,
+        briefing: report.input.briefing || null,
         createdAt: report.createdAt,
         capabilities: [],
         questions: [],
@@ -78,7 +82,31 @@ export function summarizeSession(session, records) {
     reports: reports.filter((report) => report.missing.includes(gap)),
   }))
     .filter((item) => item.reports.length)
-    .sort((a, b) => b.reports.length - a.reports.length);
+    .map((item) => {
+      const priorSessions = new Set(
+        records
+          .filter(
+            (r) =>
+              r.sessionId !== session.id &&
+              r.input.jd === session.jd &&
+              r.missing.includes(item.gap),
+          )
+          .map((r) => r.sessionId),
+      );
+      return {
+        ...item,
+        repeatedSessions: priorSessions.size,
+        priority:
+          item.reports.reduce(
+            (sum, r) => sum + (r.questionRequirement?.importance || 2),
+            0,
+          ) *
+          (1 + Math.min(priorSessions.size, 5) * 0.25),
+      };
+    })
+    .sort(
+      (a, b) => b.priority - a.priority || b.reports.length - a.reports.length,
+    );
   const tasks = [];
   const seen = new Set();
   for (const item of gaps) {
@@ -110,6 +138,47 @@ export function summarizeSession(session, records) {
   };
 }
 
+export function trendGroups(records) {
+  const groups = new Map();
+  for (const r of records) {
+    const key = JSON.stringify([
+      r.input.jd,
+      r.input.resume,
+      r.input.difficulty,
+      r.difficultyPolicy,
+      r.input.briefing,
+      r.input.history?.map((t) => t.question),
+      r.input.question,
+      r.model,
+      r.provider,
+      r.schemaVersion,
+      r.evaluation,
+      r.semanticReview?.version,
+      r.scores.map((s) => [s.dimension, s.rubric?.id, s.rubric?.text]),
+    ]);
+    if (!groups.has(key)) groups.set(key, { key, records: [] });
+    groups.get(key).records.push(r);
+  }
+  return [...groups.values()].map((g) => {
+    const ordered = [...g.records].sort(
+      (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+    );
+    const recurring = GAPS.filter(
+      (gap) => ordered.filter((r) => r.missing.includes(gap)).length >= 2,
+    );
+    const recent = ordered.slice(-2);
+    const improved = GAPS.filter(
+      (gap) =>
+        ordered.length >= 3 &&
+        ordered.slice(0, -2).some((r) => r.missing.includes(gap)) &&
+        recent.every(
+          (r) => !r.missing.includes(gap) && r.scores.every(isReviewedScore),
+        ),
+    );
+    return { ...g, records: ordered, recurring, improved };
+  });
+}
+
 export function compareReports(report, previous) {
   if (!previous) return null;
   const observed = {
@@ -125,6 +194,25 @@ export function compareReports(report, previous) {
     return result("专项练习与原题不同，不比较总分");
   if (report.practiceKind !== "retest")
     return result("缺少复测类型记录，不比较总分");
+  if (
+    !difficultyProfile(report.input.difficulty) ||
+    !difficultyProfile(previous.input.difficulty) ||
+    !report.difficultyPolicy ||
+    !previous.difficultyPolicy
+  )
+    return result("缺少难度记录，不比较总分");
+  if (report.input.difficulty !== previous.input.difficulty)
+    return result("面试难度不同，不比较总分");
+  if (
+    JSON.stringify(report.input.briefing || null) !==
+    JSON.stringify(previous.input.briefing || null)
+  )
+    return result("岗位确认、资历、侧重点或时长不同，不比较总分");
+  if (
+    JSON.stringify(report.difficultyPolicy) !==
+    JSON.stringify(previous.difficultyPolicy)
+  )
+    return result("难度评价规则不同，不比较总分");
   if (
     report.input.jd !== previous.input.jd ||
     report.input.resume !== previous.input.resume
@@ -143,6 +231,7 @@ export function compareReports(report, previous) {
     r.provider,
     r.schemaVersion,
     r.evaluation.promptVersion,
+    r.evaluation.difficultyVersion,
     r.evaluation.reviewVersion,
     r.semanticReview.version,
     r.semanticReview.model,

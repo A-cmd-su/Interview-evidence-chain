@@ -1,6 +1,24 @@
 // Data contracts for online model output. This module never generates a score.
-export const SCHEMA_VERSION = "evidence-loop-2.1";
-export const REVIEW_VERSION = "evidence-review-1.0";
+import {
+  DEFAULT_DIFFICULTY,
+  difficultyProfile,
+  difficultySnapshot,
+} from "./difficulty.mjs";
+import {
+  BRIEFING_VERSION,
+  SENIORITIES,
+  INTERVIEW_FOCI,
+  DURATIONS,
+} from "./interviewSetup.mjs";
+import { validateResumeReview } from "./resume.mjs";
+import {
+  FLOW_VERSION,
+  followDecision,
+  coveragePlan,
+  similarQuestion,
+} from "./flow.mjs";
+export const SCHEMA_VERSION = "evidence-loop-3.0";
+export const REVIEW_VERSION = "evidence-review-1.2";
 export const DIMENSIONS = [
   "相关性",
   "技术深度",
@@ -71,14 +89,104 @@ export function validateContext(input) {
     throw new InputError("仅支持在线模型请求");
   str(input.jd, "岗位 JD", 20000, InputError);
   str(input.resume, "简历", 20000, InputError);
-  return { jd: input.jd, resume: input.resume };
+  const difficulty =
+    input.difficulty === undefined ? DEFAULT_DIFFICULTY : input.difficulty;
+  if (!difficultyProfile(difficulty))
+    throw new InputError("面试难度只能为基础、标准或进阶");
+  return {
+    jd: input.jd,
+    resume: input.resume,
+    difficulty,
+    ...(input.flowVersion === FLOW_VERSION
+      ? { flowVersion: FLOW_VERSION }
+      : {}),
+    ...(input.resumeReview
+      ? {
+          resumeReview: (() => {
+            try {
+              return validateResumeReview(input.resumeReview, input.resume);
+            } catch (e) {
+              throw new InputError(e.message);
+            }
+          })(),
+        }
+      : {}),
+    ...(input.briefing !== undefined
+      ? { briefing: validateBriefing(input.briefing, input.jd) }
+      : {}),
+  };
+}
+export function validateBriefing(value, jd) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    value.confirmed !== true ||
+    value.version !== BRIEFING_VERSION
+  )
+    throw new InputError("请先校对并确认面试设置，再生成问题");
+  const title = str(value.title, "岗位标题", 100, InputError);
+  if (
+    !SENIORITIES.some((item) => item.id === value.seniority) ||
+    !INTERVIEW_FOCI.some((item) => item.id === value.focus)
+  )
+    throw new InputError("资历或面试侧重点无效，请重新选择");
+  const duration = DURATIONS.find(
+    (item) => item.minutes === value.durationMinutes,
+  );
+  if (!duration) throw new InputError("预计时长请选择15、30、45或60分钟");
+  if (
+    !Array.isArray(value.capabilities) ||
+    value.capabilities.length < 1 ||
+    value.capabilities.length > 10
+  )
+    throw new InputError("请保留1–10个岗位能力标签");
+  const capabilities = value.capabilities.map((c, i) => {
+    const label = str(c?.label, "能力标签", 80, InputError);
+    const quote = str(c?.quote, "JD依据", 20000, InputError);
+    try {
+      return {
+        id: `jd.${i + 1}`,
+        label,
+        importance: [1, 2, 3].includes(c.importance) ? c.importance : 2,
+        ...exactSpan(jd, quote),
+      };
+    } catch {
+      throw new InputError(
+        `能力“${label}”的依据不在JD原文中，请重新选择连续原文`,
+      );
+    }
+  });
+  if (
+    new Set(capabilities.map((c) => c.label.trim())).size !==
+    capabilities.length
+  )
+    throw new InputError("能力标签不能重名，请合并重复项");
+  return {
+    version: BRIEFING_VERSION,
+    confirmed: true,
+    title,
+    capabilities,
+    seniority: value.seniority,
+    focus: value.focus,
+    durationMinutes: duration.minutes,
+    questionCount: duration.questions,
+  };
+}
+export function validatePreparation(input) {
+  const context = validateContext(input);
+  if (!context.briefing)
+    throw new InputError("请先校对并确认面试设置，再生成问题");
+  if (context.flowVersion === FLOW_VERSION && !context.resumeReview)
+    throw new InputError("请先确认简历结构化校对");
+  return context;
 }
 export function validateAnswer(input) {
   const context = validateContext(input);
   str(input.answer, "回答", 8000, InputError);
   str(input.question, "当前问题", 2000, InputError);
   const history = input.history ?? [];
-  if (!Array.isArray(history) || history.length > 2)
+  if (!Array.isArray(history) || history.length > (context.flowVersion ? 8 : 2))
     throw new InputError("每道主问题最多两次追问");
   history.forEach((turn) => {
     str(turn?.question, "历史问题", 2000, InputError);
@@ -86,6 +194,13 @@ export function validateAnswer(input) {
   });
   return {
     ...context,
+    ...(context.flowVersion
+      ? {
+          remainingSeconds: Number.isFinite(input.remainingSeconds)
+            ? Math.max(0, Math.min(3600, input.remainingSeconds))
+            : 3600,
+        }
+      : {}),
     question: input.question,
     answer: input.answer,
     history: history.map(({ question, answer }) => ({ question, answer })),
@@ -113,7 +228,7 @@ export function exactSpan(text, quote) {
   if (start < 0) throw new OutputError("模型引用不在原文中，已拒绝此结果");
   return { quote, start, end: start + quote.length };
 }
-export function parseQuestions(raw, context) {
+export function parseBriefing(raw, context) {
   const output = json(raw);
   const capabilities = list(output.capabilities, "岗位能力", 10, 1).map(
     (c, i) => ({
@@ -122,6 +237,45 @@ export function parseQuestions(raw, context) {
       ...exactSpan(context.jd, c.requirementQuote),
     }),
   );
+  if (
+    new Set(capabilities.map((c) => c.label.trim())).size !==
+    capabilities.length
+  )
+    throw new OutputError("模型返回了重复能力标签，请重试提取");
+  if (!SENIORITIES.some((item) => item.id === output.seniority))
+    throw new OutputError("模型返回了未知资历类型");
+  const seniorityEvidence = output.seniorityQuote
+    ? exactSpan(context.jd, output.seniorityQuote)
+    : null;
+  if (output.seniority !== "unspecified" && !seniorityEvidence)
+    throw new OutputError("模型推断资历但未提供JD原文依据");
+  return {
+    version: BRIEFING_VERSION,
+    confirmed: false,
+    title: str(output.title, "岗位标题", 100),
+    capabilities,
+    seniority: output.seniority,
+    seniorityEvidence,
+    focus: "balanced",
+    durationMinutes: 30,
+  };
+}
+export function parseQuestions(raw, context) {
+  const output = json(raw);
+  const briefing = context.briefing
+    ? validateBriefing(context.briefing, context.jd)
+    : null;
+  const capabilities =
+    briefing?.capabilities ||
+    list(output.capabilities, "岗位能力", 10, 1).map((c, i) => ({
+      id: `jd.${i + 1}`,
+      label: str(c?.label, "能力标签", 80),
+      ...exactSpan(context.jd, c.requirementQuote),
+    }));
+  if (briefing && output.questions?.length !== briefing.questionCount)
+    throw new OutputError(
+      `本轮设置需要${briefing.questionCount}道主问题，模型返回数量不符`,
+    );
   const questions = list(output.questions, "面试问题", 8, 3).map((q, i) => {
     const capability = capabilities.find((c) => c.id === q.requirementId);
     if (!capability) throw new OutputError("问题未关联有效岗位能力 ID");
@@ -133,9 +287,31 @@ export function parseQuestions(raw, context) {
       why: str(q.why, "提问原因", 500),
     };
   });
-  return { title: str(output.title, "岗位标题", 100), capabilities, questions };
+  if (context.flowVersion) {
+    const plan = coveragePlan(briefing);
+    for (let i = 0; i < questions.length; i++) {
+      if (questions[i].requirement.id !== plan[i].requirementId)
+        throw new OutputError("模型未遵循岗位覆盖规划，请重新生成");
+      if (
+        questions
+          .slice(0, i)
+          .some((q) => similarQuestion(q.question, questions[i].question))
+      )
+        throw new OutputError("模型生成了相似重复问题，请重新生成");
+    }
+  }
+  const difficulty = validateContext(context).difficulty;
+  return {
+    title: briefing?.title || str(output.title, "岗位标题", 100),
+    ...(briefing ? { briefing } : {}),
+    capabilities,
+    questions,
+    difficulty,
+    difficultyPolicy: difficultySnapshot(difficulty),
+  };
 }
 export function parseAnalysis(raw, input, now = new Date()) {
+  input = validateAnswer(input);
   const output = json(raw);
   const rows = list(output.scores, "评分维度", 5, 5);
   if (
@@ -165,16 +341,26 @@ export function parseAnalysis(raw, input, now = new Date()) {
     const requirement = row.requirementQuote
       ? exactSpan(input.jd, row.requirementQuote)
       : null;
+    const confirmedCapability =
+      requirement &&
+      input.briefing?.capabilities.find(
+        (c) => requirement.start >= c.start && requirement.end <= c.end,
+      );
     const supported =
       answer &&
       requirement &&
       rubric?.dimension === dimension &&
+      (!input.briefing || confirmedCapability) &&
       row.score !== null;
     return {
       dimension,
       score: null,
       proposedScore: supported ? row.score : null,
       status: supported ? "pending_review" : "insufficient_evidence",
+      evidenceIssue:
+        requirement && input.briefing && !confirmedCapability
+          ? "unconfirmed_requirement"
+          : null,
       note,
       rubric: Object.values(KNOWLEDGE).find((k) => k.dimension === dimension),
       evidence: supported
@@ -183,7 +369,9 @@ export function parseAnalysis(raw, input, now = new Date()) {
             answer: { ...answer, turn: answerTurn },
             requirement: {
               ...requirement,
-              id: `jd.${requirement.start}.${requirement.end}`,
+              id:
+                confirmedCapability?.id ||
+                `jd.${requirement.start}.${requirement.end}`,
             },
             knowledgeId: rubric.id,
           }
@@ -194,7 +382,7 @@ export function parseAnalysis(raw, input, now = new Date()) {
   if (missing.some((g) => !GAPS.includes(g)))
     throw new OutputError("模型返回了未知的缺口类型");
   let followUp = null;
-  if (output.followUp && turns.length < 3) {
+  if (output.followUp && turns.length < (input.flowVersion ? 9 : 3)) {
     if (!missing.includes(output.followUp.gap))
       throw new OutputError("追问必须对应本轮缺口");
     followUp = {
@@ -202,7 +390,7 @@ export function parseAnalysis(raw, input, now = new Date()) {
       question: str(output.followUp.question, "追问", 1000),
     };
   }
-  if (missing.length && turns.length < 3 && !followUp)
+  if (missing.length && turns.length < 3 && !followUp && !input.flowVersion)
     throw new OutputError("模型未针对缺口生成追问");
   const consistency = list(output.consistency, "待澄清项", 6).map((c) => {
     const source = c?.source;
@@ -211,6 +399,14 @@ export function parseAnalysis(raw, input, now = new Date()) {
     const prior =
       source === "resume" ? input.resume : input.history?.[c.turn]?.answer;
     if (!prior) throw new OutputError("待澄清项引用了不存在的历史回答");
+    if (
+      source === "resume" &&
+      input.resumeReview &&
+      !input.resumeReview.items.some((item) =>
+        item.quote.includes(c.claimQuote),
+      )
+    )
+      throw new OutputError("待澄清项引用了未经用户确认的简历内容");
     return {
       type: "待澄清",
       source,
@@ -237,11 +433,21 @@ export function parseAnalysis(raw, input, now = new Date()) {
   );
   const due = new Date(now);
   due.setDate(due.getDate() + 2);
+  const decision = input.flowVersion
+    ? followDecision({
+        missing,
+        question: followUp?.question,
+        history: turns,
+        remainingSeconds: input.remainingSeconds,
+      })
+    : null;
+  if (decision && !decision.continue) followUp = null;
   return {
     schemaVersion: SCHEMA_VERSION,
     createdAt: now.toISOString(),
     mode: "online-model",
     input,
+    difficultyPolicy: difficultySnapshot(input.difficulty),
     scores,
     score: null,
     coverage: 0,
@@ -249,9 +455,10 @@ export function parseAnalysis(raw, input, now = new Date()) {
     consistency,
     followUp,
     followUpReason:
-      turns.length >= 3
+      decision?.reason ||
+      (turns.length >= 3
         ? "本题两轮追问已完成，可转入专项训练。"
-        : "本题暂无新增缺口。",
+        : "本题暂无新增缺口。"),
     trainingPlan: {
       title: str(plan.title, "计划标题", 150),
       reason: str(plan.reason, "计划原因", 1000),
@@ -304,7 +511,10 @@ export function applySemanticReview(raw, draft, now = new Date()) {
     if (!review)
       return {
         ...row,
-        note: "缺少完整的回答、岗位或量表依据，不发布分数。",
+        note:
+          row.evidenceIssue === "unconfirmed_requirement"
+            ? "引用的岗位要求不在本次确认的能力范围内，不发布分数。"
+            : "缺少完整的回答、岗位或量表依据，不发布分数。",
         review: null,
       };
     return {

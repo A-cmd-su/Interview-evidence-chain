@@ -1,7 +1,10 @@
 import React from "react";
+import { printReports } from "../printReport";
+import { BriefingSummary } from "./Preparation";
 import { ArrowRight, Search, Download } from "lucide-react";
 import { compareReports } from "../sessionSummary";
 import { isReviewedScore } from "../../shared/analyze.mjs";
+import { difficultyLabel } from "../../shared/difficulty.mjs";
 const REVIEW_STATUS = {
   pending_review: "待语义复核，不发布分数",
   insufficient_evidence: "引用不完整，不发布分数",
@@ -48,6 +51,7 @@ export function Report({
           <small>
             {new Date(report.createdAt).toLocaleString("zh-CN")} ·{" "}
             {report.model}
+            {" · 难度：" + difficultyLabel(report.input.difficulty)}
           </small>
         </div>
         <div className="coverage">
@@ -55,7 +59,18 @@ export function Report({
           <span>{legacy ? "历史引用覆盖" : "语义复核通过维度"}</span>
         </div>
       </div>
+      {report.difficultyPolicy && (
+        <details className="difficulty-policy">
+          <summary>
+            {report.difficultyPolicy.label}难度 · 查看本次评价情境
+          </summary>
+          <p>{report.difficultyPolicy.guidance}</p>
+          <p>按同一五维量表判断，不按难度加减分。不同难度不直接比较总分。</p>
+          <small>{report.difficultyPolicy.version}</small>
+        </details>
+      )}
       <p className="report-note">
+        {report.input.briefing && "本次评分依据已确认的岗位能力与面试设置。"}
         {legacy
           ? "历史初评：仅校验原文引用，未经语义复核。"
           : report.semanticReview.status === "not_required"
@@ -89,6 +104,10 @@ export function Report({
           </button>
         </div>
       )}
+      <BriefingSummary
+        briefing={report.input.briefing}
+        practice={Boolean(report.practiceKind)}
+      />
       <div className="report-layout">
         <section className="score-list">
           {report.scores.map((row) => (
@@ -247,6 +266,12 @@ export function Report({
               <Download size={16} />
               导出报告 JSON
             </button>
+            <button
+              className="secondary"
+              onClick={() => printReports("面试证据报告", [report])}
+            >
+              打印 / PDF 报告
+            </button>
           </div>
         </aside>
       </div>
@@ -280,6 +305,10 @@ export function Plan({
     <div className="page">
       <span className="number-label">04 / CLOSE THE LOOP</span>
       <h2>{plan.title}</h2>
+      <p className="difficulty-context">
+        训练难度：{difficultyLabel(report.input.difficulty)}
+        {!report.input.difficulty && " · 开始练习或复测时使用标准难度"}
+      </p>
       <button className="text-button" onClick={goSession}>
         查看整场训练优先级
         <ArrowRight size={14} aria-hidden="true" />
@@ -314,10 +343,34 @@ export function Plan({
         <button className="secondary" onClick={() => practice(null, report)}>
           立即复测
         </button>
+        <button
+          className="secondary"
+          onClick={() => practice(null, report, true)}
+        >
+          换场景验证
+        </button>
       </div>
       <p className="storage-note">
-        复测日期是训练建议，不会发送系统提醒。现在也可以复测，对比两次回答。
+        勾选完成只代表做过，不代表掌握。复测依据新回答检查完成标准。复测日期为训练建议，不会自动发送提醒。
       </p>
+      {records
+        .filter((r) => r.originReportId === report.id && r.trainingVerification)
+        .map((r) => (
+          <div className="utility-panel" key={r.id}>
+            <b>
+              新回答验证：
+              {r.trainingVerification.passed &&
+              r.scores.every((s) => s.status === "supported")
+                ? "本次通过"
+                : "尚未通过"}
+            </b>
+            <p>{r.trainingVerification.reason}</p>
+            <blockquote>{r.trainingVerification.quote}</blockquote>
+            <button className="text-button" onClick={() => openReport(r.id)}>
+              查看新证据与量表复核
+            </button>
+          </div>
+        ))}
       {plan.tasks.length ? (
         <div className="task-grid">
           {plan.tasks.map((t, i) => (
@@ -331,6 +384,15 @@ export function Plan({
                 <b>完成标准</b>
                 <p>{t.criterion}</p>
               </div>
+              <button
+                className="text-button"
+                onClick={() => openReport(report.id)}
+              >
+                查看缺口来源与关联证据
+                {report.questionRequirement?.label
+                  ? ` · ${report.questionRequirement.label}`
+                  : ""}
+              </button>
               <div className="task-controls">
                 <button className="primary" onClick={() => practice(t, report)}>
                   练习这道题 <ArrowRight size={16} />

@@ -1,6 +1,9 @@
 import React from "react";
+import { printReports } from "../printReport";
+import { BriefingSummary } from "./Preparation";
 import { ArrowRight, Download, Search, ClipboardList } from "lucide-react";
 import { summarizeSession, exportSessionSummary } from "../sessionSummary";
+import { difficultyLabel } from "../../shared/difficulty.mjs";
 
 const STATUS = {
   assessed: "有语义复核支持",
@@ -37,10 +40,29 @@ export function SessionReport({
         <div>
           <span className="eyebrow">SESSION REVIEW</span>
           <h2>{session.title}</h2>
+          <BriefingSummary
+            briefing={session.briefing}
+            practice={Boolean(session.originReportId)}
+          />
+          <p className="difficulty-context">
+            本轮难度：{difficultyLabel(session.difficulty)}
+          </p>
         </div>
         <button className="secondary" onClick={download}>
           <Download size={16} aria-hidden="true" />
           导出整场报告
+        </button>
+        <button
+          className="secondary"
+          onClick={() =>
+            printReports(
+              session.title,
+              summary.questions.flatMap((q) => (q.report ? [q.report] : [])),
+              session,
+            )
+          }
+        >
+          打印 / PDF
         </button>
       </header>
       {!session.pathComplete && (
@@ -141,7 +163,9 @@ export function SessionReport({
                   <ArrowRight size={14} aria-hidden="true" />
                 </button>
               ) : (
-                <span className="assessment-status unassessed">未评估</span>
+                <span className="assessment-status unassessed">
+                  {question.skipped ? "已跳过 · 未评估" : "未问到"}
+                </span>
               )}
             </li>
           ))}
@@ -156,6 +180,10 @@ export function SessionReport({
                 <div>
                   <b>{priority.gap}</b>
                   <small>{priority.reports.length} 道主问题仍有此缺口</small>
+                  <small>
+                    历史另有 {priority.repeatedSessions || 0} 场出现 ·
+                    按岗位重要性与重复程度排序
+                  </small>
                 </div>
                 <div className="summary-links">
                   {priority.reports.map((report, i) => (

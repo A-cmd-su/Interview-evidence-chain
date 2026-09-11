@@ -2,7 +2,9 @@ import {
   KNOWLEDGE,
   parseAnalysis,
   applySemanticReview,
+  validateBriefing,
 } from "../shared/analyze.mjs";
+import { BRIEFING_VERSION } from "../shared/interviewSetup.mjs";
 export const config = {
   baseUrl: "http://127.0.0.1:9999/v1/chat/completions",
   model: "fixture-only",
@@ -20,7 +22,7 @@ export const input = {
   history: [],
 };
 export function prepared(ctx = context) {
-  return {
+  const result = {
     title: "目标岗位面试",
     capabilities: [{ label: "岗位能力", requirementQuote: ctx.jd }],
     questions: [
@@ -41,6 +43,43 @@ export function prepared(ctx = context) {
       },
     ],
   };
+  if (ctx.briefing)
+    return {
+      questions: Array.from({ length: ctx.briefing.questionCount }, (_, i) => ({
+        ...result.questions[i % 3],
+        requirementId:
+          ctx.briefing.capabilities[i % ctx.briefing.capabilities.length].id,
+        question:
+          result.questions[i % 3].question + (i >= 3 ? `（场景${i + 1}）` : ""),
+      })),
+    };
+  return result;
+}
+export function briefingOutput(ctx = context) {
+  return {
+    title: "目标岗位面试",
+    capabilities: [{ label: "岗位能力", requirementQuote: ctx.jd }],
+    seniority: "unspecified",
+    seniorityQuote: "",
+  };
+}
+export function confirmedContext(data = input, overrides = {}) {
+  return {
+    ...data,
+    briefing: validateBriefing(
+      {
+        version: BRIEFING_VERSION,
+        confirmed: true,
+        title: "目标岗位面试",
+        capabilities: [{ label: "岗位能力", quote: data.jd }],
+        seniority: "unspecified",
+        focus: "balanced",
+        durationMinutes: 15,
+        ...overrides,
+      },
+      data.jd,
+    ),
+  };
 }
 export function analysis(data = input, gap = "故障兜底") {
   const turns = data.history || [];
@@ -51,7 +90,7 @@ export function analysis(data = input, gap = "故障兜底") {
       score: 3,
       answerTurn: turns.length,
       answerQuote: data.answer,
-      requirementQuote: data.jd,
+      requirementQuote: data.briefing?.capabilities[0].quote || data.jd,
       knowledgeId: r.id,
       note: "回答引用可以定位，仍需验证专业判断与适用范围。",
     })),
@@ -113,8 +152,10 @@ export async function fixtureFetch(url, options) {
   return chatResponse(
     messages[0].content.includes("任务=prepare")
       ? prepared(data)
-      : messages[0].content.includes("任务=review")
-        ? semanticReview(data)
-        : analysis(data),
+      : messages[0].content.includes("任务=briefing")
+        ? briefingOutput(data)
+        : messages[0].content.includes("任务=review")
+          ? semanticReview(data)
+          : analysis(data),
   );
 }

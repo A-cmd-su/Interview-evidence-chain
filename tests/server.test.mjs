@@ -11,6 +11,8 @@ import {
   chatResponse,
   analysis,
   semanticReview,
+  confirmedContext,
+  briefingOutput,
 } from "./fixtures.mjs";
 async function client(t, fetchImpl = fixtureFetch) {
   const app = createApp({ fetchImpl });
@@ -38,6 +40,102 @@ async function client(t, fetchImpl = fixtureFetch) {
     return { status: res.status, data: await res.json() };
   };
 }
+
+test("难度参与出题和评分缓存，省略难度与标准等价，非法值不调用模型", async (t) => {
+  let count = 0;
+  const call = await client(t, async (...args) => {
+    count++;
+    return fixtureFetch(...args);
+  });
+  await call("/models", config);
+  for (const path of ["/interview/prepare", "/interview/analyze"]) {
+    const input = path.endsWith("/prepare")
+      ? confirmedContext()
+      : { ...confirmedContext(), briefing: undefined };
+    const before = count;
+    assert.equal(
+      (await call(path, { ...input, difficulty: "fake" })).status,
+      400,
+    );
+    assert.equal(count, before);
+    for (const difficulty of ["basic", "standard", "advanced"]) {
+      const result = await call(path, { ...input, difficulty });
+      assert.equal(result.status, 200);
+      assert.equal(result.data.cached, undefined);
+      assert.equal(result.data.difficultyPolicy.id, difficulty);
+      assert.equal(
+        result.data.evaluation.difficultyVersion,
+        result.data.difficultyPolicy.version,
+      );
+      const after = count;
+      assert.equal(
+        (await call(path, { ...input, difficulty })).data.cached,
+        true,
+      );
+      assert.equal(count, after);
+    }
+    const after = count;
+    assert.equal((await call(path, input)).data.cached, true);
+    assert.equal(count, after);
+  }
+  assert.equal(count, 9);
+});
+
+test("岗位预提取和确认出题分离，编辑后的设置参与缓存，失败不缓存替代结果", async (t) => {
+  let calls = 0;
+  const call = await client(t, (...args) => {
+    calls++;
+    return fixtureFetch(...args);
+  });
+  await call("/models", config);
+  assert.equal((await call("/interview/prepare", input)).status, 400);
+  assert.equal(calls, 0);
+  const proposal = await call("/interview/briefing", input);
+  assert.equal(proposal.status, 200);
+  assert.equal(proposal.data.confirmed, false);
+  assert.equal(proposal.data.questions, undefined);
+  assert.equal(calls, 1);
+  assert.equal((await call("/interview/briefing", input)).data.cached, true);
+  assert.equal(calls, 1);
+  const context = confirmedContext(input, {
+    title: "用户确认标题",
+    focus: "projects",
+    durationMinutes: 30,
+  });
+  const result = await call("/interview/prepare", context);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.title, "用户确认标题");
+  assert.equal(result.data.questions.length, 5);
+  assert.equal((await call("/interview/prepare", context)).data.cached, true);
+  assert.equal(calls, 2);
+  const revised = confirmedContext(input, {
+    focus: "behavioral",
+    durationMinutes: 15,
+  });
+  assert.equal(
+    (await call("/interview/prepare", revised)).data.questions.length,
+    3,
+  );
+  assert.equal(calls, 3);
+});
+
+test("预提取伪造原文返回失败，重试仍调用模型且不生成题目", async (t) => {
+  let calls = 0;
+  const call = await client(t, () => {
+    calls++;
+    const value = briefingOutput(input);
+    value.capabilities[0].requirementQuote = "fabricated";
+    return chatResponse(value);
+  });
+  await call("/models", config);
+  for (let i = 0; i < 2; i++) {
+    const result = await call("/interview/briefing", input);
+    assert.equal(result.status, 502);
+    assert.equal(result.data.capabilities, undefined);
+    assert.equal(result.data.questions, undefined);
+  }
+  assert.equal(calls, 2);
+});
 test("完整接口、根地址、自定义路径与模型Token参数规范化", async () => {
   assert.equal(validateConfig(config).baseUrl, "http://127.0.0.1:9999/v1");
   assert.equal(
@@ -78,7 +176,10 @@ test("未配置模型不调用；保存不假装连接；测试后配置有测�
     count++;
     return fixtureFetch(...args);
   });
-  assert.equal((await call("/interview/prepare", input)).status, 409);
+  assert.equal(
+    (await call("/interview/prepare", confirmedContext(input))).status,
+    409,
+  );
   const save = await call("/models", { ...config, apiKey: "secret-test" });
   assert.equal(count, 0);
   assert.equal(save.data.config.testedAt, null);
@@ -100,7 +201,7 @@ test("在线生成问题、分析、缓存、切换配置和清除会话", async
     return fixtureFetch(...args);
   });
   await call("/models", config);
-  const prepared = await call("/interview/prepare", input);
+  const prepared = await call("/interview/prepare", confirmedContext(input));
   assert.equal(prepared.status, 200, JSON.stringify(prepared.data));
   assert.equal(prepared.data.questions.length, 3);
   const report = await call("/interview/analyze", input);
@@ -298,7 +399,10 @@ test("列表未实现不阻止手填模型和真实调用", async (t) => {
   );
   assert.equal((await call("/models/list", config)).status, 502);
   assert.equal((await call("/models", config)).status, 200);
-  assert.equal((await call("/interview/prepare", input)).status, 200);
+  assert.equal(
+    (await call("/interview/prepare", confirmedContext(input))).status,
+    200,
+  );
 });
 
 test("结构化测试需明确确认，仅发送合成样例且不保存测试报告", async (t) => {

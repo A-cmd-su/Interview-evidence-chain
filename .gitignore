@@ -1,5 +1,8 @@
 node_modules
 dist
+data/
+test-results/
+playwright-report/
 .playwright-mcp
 .env
 .env.*

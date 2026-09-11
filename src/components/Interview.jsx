@@ -1,5 +1,9 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { VoiceInput } from "./VoiceInput";
+import { followDecision } from "../../shared/flow.mjs";
+import { BriefingSummary } from "./Preparation";
 import { ArrowRight, CornerDownRight, Check } from "lucide-react";
+import { difficultyLabel } from "../../shared/difficulty.mjs";
 export function Interview({
   session,
   question,
@@ -14,7 +18,26 @@ export function Interview({
   finish,
   openReport,
   source,
+  skip,
+  confirmEquivalent,
 }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const remaining = session.deadline
+    ? Math.max(0, Math.ceil((session.deadline - now) / 1000))
+    : null;
+  const decision = session.flowVersion
+    ? followDecision({
+        missing: report?.missing || [],
+        question: report?.followUp?.question,
+        history: question.attempts,
+        remainingSeconds: remaining ?? Infinity,
+        skipped: question.skipped,
+      })
+    : { continue: true };
   const ended = question.attempts.length > 0 && !question.ready;
   return (
     <div className="page">
@@ -22,11 +45,42 @@ export function Interview({
         <div>
           <span className="number-label">02 / THINK OUT LOUD</span>
           <h2>{session.title}</h2>
+          {remaining !== null && (
+            <p role="timer">
+              剩余预算 {Math.floor(remaining / 60)}:
+              {String(remaining % 60).padStart(2, "0")} · 超时仍可提交当前回答
+            </p>
+          )}
+          {session.equivalence && (
+            <div className="utility-panel">
+              <p>等价场景说明：{session.equivalence.reason}</p>
+              <p>原题：{session.equivalence.originalQuestion}</p>
+              {!session.equivalence.confirmed ? (
+                <button className="secondary" onClick={confirmEquivalent}>
+                  确认考察目标一致，开始复测
+                </button>
+              ) : (
+                <p>场景已确认；本次独立验证新证据，不与原题直接比较总分。</p>
+              )}
+            </div>
+          )}
+          <BriefingSummary
+            briefing={session.briefing}
+            practice={Boolean(session.originReportId)}
+          />
+          <p className="difficulty-context">
+            本轮难度：{difficultyLabel(session.difficulty)} ·{" "}
+            {session.difficulty
+              ? "本轮固定，复测与专项练习继承此难度"
+              : "历史面试后续回答按标准难度评估"}
+          </p>
           <p>
             {session.originReportId
               ? session.practiceKind === "targeted"
                 ? "专项练习"
-                : "同题复测"
+                : session.practiceKind === "equivalent"
+                  ? "不同场景复测"
+                  : "同题复测"
               : "按自己的节奏回答。好的追问，从具体的经历开始。"}
           </p>
         </div>
@@ -89,7 +143,7 @@ export function Interview({
           <div className="answer-card">
             <span className="eyebrow">
               {question.attempts.length && question.ready
-                ? "FOLLOW-UP · " + question.attempts.length + "/2"
+                ? "追问 · " + question.attempts.length
                 : "QUESTION · " + (session.current + 1)}
             </span>
             <h3>
@@ -98,6 +152,7 @@ export function Interview({
                 : report?.input.question || question.question}
             </h3>
             <p className="answer-instruction">{question.why}</p>
+            {question.skipped && <p>已跳过本题；跳过不计为能力不足。</p>}
             {question.ready ? (
               <form
                 onSubmit={(e) => {
@@ -126,6 +181,7 @@ export function Interview({
                     <ArrowRight size={16} />
                   </button>
                 </div>
+                <VoiceInput disabled={Boolean(busy)} onConfirm={changeAnswer} />
               </form>
             ) : (
               <blockquote className="submitted-answer">
@@ -160,7 +216,7 @@ export function Interview({
                   : "初评未检出新增信息缺口。"}
               </p>
               <div className="button-row">
-                {report.followUp && (
+                {report.followUp && decision.continue && (
                   <button
                     className="primary"
                     disabled={Boolean(busy)}
@@ -177,6 +233,7 @@ export function Interview({
                   查看本题证据
                 </button>
               </div>
+              {!decision.continue && <p>{decision.reason}</p>}
             </div>
           )}
           {question.attempts.length > 0 && (
@@ -200,6 +257,13 @@ export function Interview({
         </section>
       </div>
       <div className="interview-actions">
+        <button
+          className="text-button"
+          disabled={Boolean(busy) || question.skipped}
+          onClick={skip}
+        >
+          跳过本题并停止追问
+        </button>
         <button
           className="text-button"
           disabled={Boolean(busy)}

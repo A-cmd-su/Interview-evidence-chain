@@ -18,6 +18,7 @@ import {
   prepared,
   analysis,
   semanticReview,
+  confirmedContext,
   chatResponse,
 } from "./fixtures.mjs";
 
@@ -207,6 +208,8 @@ test("Responses 使用原生 input/output 协议且不持久化资料", async ()
     assert.equal(body.max_output_tokens, 8192);
     assert.deepEqual(body.text, { format: { type: "json_object" } });
     const value = JSON.parse(body.input.at(-1).content);
+    assert.equal(value.difficulty, "advanced");
+    assert.ok(body.input[0].content.includes("面试难度=进阶"));
     return json(
       responseOutput(
         body.input[0].content.includes("任务=prepare")
@@ -218,11 +221,23 @@ test("Responses 使用原生 input/output 协议且不持久化资料", async ()
     );
   };
   assert.equal(
-    (await prepareInterview(input, saved, { fetchImpl })).questions.length,
+    (
+      await prepareInterview(
+        confirmedContext({ ...input, difficulty: "advanced" }),
+        saved,
+        {
+          fetchImpl,
+        },
+      )
+    ).questions.length,
     3,
   );
   assert.equal(
-    (await analyzeInterview(input, saved, { fetchImpl })).mode,
+    (
+      await analyzeInterview({ ...input, difficulty: "advanced" }, saved, {
+        fetchImpl,
+      })
+    ).mode,
     "online-model",
   );
 });
