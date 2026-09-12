@@ -7,7 +7,13 @@ import { followDecision, FLOW_VERSION } from "../shared/flow.mjs";
 export const STORAGE_KEY = "evidence-loop.workspace.v2";
 export const initialWorkspace = () => ({
   version: 2,
-  draft: { jd: "", resume: "", difficulty: DEFAULT_DIFFICULTY },
+  draft: {
+    jd: "",
+    resume: "",
+    difficulty: DEFAULT_DIFFICULTY,
+    interviewMode: "text",
+    language: "zh-CN",
+  },
   preparation: null,
   session: null,
   sessions: [],
@@ -45,6 +51,14 @@ export function loadWorkspace(storage) {
           difficulty: difficultyProfile(value.draft.difficulty)
             ? value.draft.difficulty
             : DEFAULT_DIFFICULTY,
+          interviewMode: ["text", "voice", "video"].includes(
+            value.draft.interviewMode,
+          )
+            ? value.draft.interviewMode
+            : "text",
+          language: ["zh-CN", "en-US", "ja-JP"].includes(value.draft.language)
+            ? value.draft.language
+            : "zh-CN",
         },
         sessions: Array.isArray(value.sessions) ? value.sessions : [],
         preparation: isPreparationCurrent(value.preparation, value.draft)
@@ -72,6 +86,8 @@ export function sessionSnapshot(session) {
     jd: session.jd,
     resume: session.resume,
     difficulty: session.difficulty || null,
+    interviewMode: session.interviewMode || "text",
+    language: session.language || "zh-CN",
     difficultyPolicy: session.difficultyPolicy || null,
     briefing: session.briefing || null,
     flowVersion: session.flowVersion || null,

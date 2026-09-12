@@ -3,6 +3,8 @@ import { ArrowRight, Plus, Search, Trash2 } from "lucide-react";
 import {
   SENIORITIES,
   INTERVIEW_FOCI,
+  INTERVIEW_MODES,
+  INTERVIEW_LANGUAGES,
   DURATIONS,
   setupLabel,
 } from "../../shared/interviewSetup.mjs";
@@ -111,6 +113,34 @@ export function Preparation({
                 {DURATIONS.map((item) => (
                   <option value={item.minutes} key={item.minutes}>
                     {item.minutes} 分钟 · {item.questions} 道主问题
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="briefing-mode">面试方式</label>
+              <select
+                id="briefing-mode"
+                value={edited.interviewMode || "text"}
+                onChange={(e) => change("interviewMode", e.target.value)}
+              >
+                {INTERVIEW_MODES.map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="briefing-language">回答语言</label>
+              <select
+                id="briefing-language"
+                value={edited.language || "zh-CN"}
+                onChange={(e) => change("language", e.target.value)}
+              >
+                {INTERVIEW_LANGUAGES.map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {item.label}
                   </option>
                 ))}
               </select>
@@ -283,7 +313,9 @@ export function BriefingSummary({ briefing, practice = false }) {
       {practice ? "来源面试设置" : "已确认"}：
       {setupLabel(SENIORITIES, briefing.seniority)} ·{" "}
       {setupLabel(INTERVIEW_FOCI, briefing.focus)} · 预计{" "}
-      {briefing.durationMinutes} 分钟 / {briefing.questionCount} 道主问题
+      {briefing.durationMinutes} 分钟 / {briefing.questionCount} 道主问题 ·{" "}
+      {setupLabel(INTERVIEW_MODES, briefing.interviewMode || "text")} ·{" "}
+      {setupLabel(INTERVIEW_LANGUAGES, briefing.language || "zh-CN")}
     </p>
   );
 }

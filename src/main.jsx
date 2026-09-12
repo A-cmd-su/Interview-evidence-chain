@@ -303,6 +303,8 @@ function App() {
             jd: original.input.jd,
             resume: original.input.resume,
             difficulty: original.input.difficulty || DEFAULT_DIFFICULTY,
+            interviewMode: original.input.interviewMode || "text",
+            language: original.input.language || "zh-CN",
             ...(original.input.flowVersion
               ? {
                   flowVersion: original.input.flowVersion,
@@ -337,6 +339,8 @@ function App() {
           ? { briefing: original.input.briefing }
           : {}),
         difficulty: original.input.difficulty || DEFAULT_DIFFICULTY,
+        interviewMode: original.input.interviewMode || "text",
+        language: original.input.language || "zh-CN",
         difficultyPolicy: difficultySnapshot(
           original.input.difficulty || DEFAULT_DIFFICULTY,
         ),
@@ -652,7 +656,7 @@ function App() {
                   checked={consent}
                   onChange={(e) => setConsent(e.target.checked)}
                 />
-                我同意将本轮岗位、简历、问题与回答发送到已配置的模型服务。
+                我同意将本轮岗位、简历、问题与回答发送到已配置的模型服务。视频或录音不会上传。
               </label>
               <Interview
                 session={session}

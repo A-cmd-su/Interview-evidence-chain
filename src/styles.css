@@ -2033,6 +2033,37 @@ main {
 .voice-input textarea {
   min-height: 130px;
 }
+.video-input {
+  margin-top: 18px;
+  border-top: 1px solid #dce2df;
+  padding-top: 8px;
+}
+.video-input summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 600;
+}
+.video-stage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.video-stage video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #182018;
+  border-radius: 6px;
+}
+.device-check {
+  font-size: 12px !important;
+  color: #536349 !important;
+  background: #e8ecdf;
+  padding: 8px 10px;
+  border-radius: 4px;
+}
 .intro h2 {
   font-size: clamp(26px, 3vw, 36px);
   line-height: 1.3;
@@ -2071,5 +2102,8 @@ summary:focus-visible {
   }
   .voice-input button {
     margin: 8px 0;
+  }
+  .video-stage {
+    grid-template-columns: 1fr;
   }
 }

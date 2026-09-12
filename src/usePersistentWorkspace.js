@@ -48,6 +48,13 @@ export function usePersistentWorkspace() {
             /* Browser storage is optional. */
           }
         }
+        value = {
+          ...value,
+          draft: {
+            ...initialWorkspace().draft,
+            ...(value?.draft || {}),
+          },
+        };
         lastSaved.current = value;
         if (alive) {
           setWorkspace(value);

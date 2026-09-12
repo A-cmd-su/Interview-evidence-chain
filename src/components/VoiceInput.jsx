@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-export function VoiceInput({ onConfirm, disabled }) {
+export function VoiceInput({ onConfirm, disabled, language = "zh-CN" }) {
   const recorder = useRef(null),
     stream = useRef(null),
     recognizer = useRef(null),
@@ -49,7 +49,7 @@ export function VoiceInput({ onConfirm, disabled }) {
       if (Speech) {
         const speech = new Speech();
         recognizer.current = speech;
-        speech.lang = "zh-CN";
+        speech.lang = language;
         speech.continuous = true;
         speech.interimResults = false;
         speech.onresult = (e) => {
@@ -90,6 +90,11 @@ export function VoiceInput({ onConfirm, disabled }) {
           Speech 的浏览器开启自动转写。
         </p>
       )}
+      <p className="device-check" role="status">
+        设备检查：麦克风{" "}
+        {navigator.mediaDevices?.getUserMedia ? "可检测" : "不可用"} · 转写{" "}
+        {Speech ? "浏览器支持" : "需手动校对"}
+      </p>
       <label className="consent">
         <input
           type="checkbox"
@@ -108,6 +113,20 @@ export function VoiceInput({ onConfirm, disabled }) {
         {recording ? "停止录音与转写" : "开始录音"}
       </button>
       {audio && <audio controls src={audio} />}
+      {audio && (
+        <button
+          type="button"
+          className="text-button"
+          disabled={recording}
+          onClick={() => {
+            URL.revokeObjectURL(audio);
+            audioRef.current = null;
+            setAudio("");
+          }}
+        >
+          清理本地录音
+        </button>
+      )}
       <label htmlFor="transcript">转写校对</label>
       <textarea
         id="transcript"

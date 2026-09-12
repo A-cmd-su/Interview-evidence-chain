@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { VoiceInput } from "./VoiceInput";
+import { VideoInput } from "./VideoInput";
 import { followDecision } from "../../shared/flow.mjs";
 import { BriefingSummary } from "./Preparation";
 import { ArrowRight, CornerDownRight, Check } from "lucide-react";
@@ -169,10 +170,18 @@ export function Interview({
                   value={question.draft}
                   disabled={Boolean(busy)}
                   onChange={(e) => changeAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      submit();
+                    }
+                  }}
                   placeholder="具体说说：当时的背景、你做了什么、如何验证结果…"
                 />
                 <div className="answer-footer">
-                  <span>{question.draft.length} / 8000</span>
+                  <span>
+                    {question.draft.length} / 8000 · Ctrl/Cmd + Enter 提交
+                  </span>
                   <button
                     className="primary"
                     disabled={Boolean(busy) || !question.draft.trim()}
@@ -181,7 +190,30 @@ export function Interview({
                     <ArrowRight size={16} />
                   </button>
                 </div>
-                <VoiceInput disabled={Boolean(busy)} onConfirm={changeAnswer} />
+                {session.interviewMode === "video" ? (
+                  <VideoInput
+                    disabled={Boolean(busy)}
+                    language={session.language}
+                    onConfirm={changeAnswer}
+                  />
+                ) : session.interviewMode === "voice" ? (
+                  <VoiceInput
+                    disabled={Boolean(busy)}
+                    language={session.language}
+                    onConfirm={changeAnswer}
+                  />
+                ) : (
+                  <>
+                    <p className="storage-note">
+                      文字面试：你可以直接输入回答，也可以使用下方语音辅助后校对转写。
+                    </p>
+                    <VoiceInput
+                      disabled={Boolean(busy)}
+                      language={session.language}
+                      onConfirm={changeAnswer}
+                    />
+                  </>
+                )}
               </form>
             ) : (
               <blockquote className="submitted-answer">
@@ -194,6 +226,11 @@ export function Interview({
               </div>
             )}
             <div className="privacy">
+              {session.interviewMode === "video"
+                ? "视频只用于本页回看；评分只发送你确认后的文字。"
+                : session.interviewMode === "voice"
+                  ? "录音只用于本页回听；评分只发送你确认后的文字。"
+                  : "每次提交通常包含初评与语义复核两次模型调用，均可能计费。"}{" "}
               每次提交通常包含初评与语义复核两次模型调用，均可能计费。
             </div>
           </div>

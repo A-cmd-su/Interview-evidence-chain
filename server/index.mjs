@@ -1,5 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { createStore } from "./store.mjs";
@@ -108,6 +109,16 @@ export function createApp(options = {}) {
   cleanup.unref();
   const sessions = new Map();
   const origins = new Set(ORIGINS);
+  for (const origin of options.allowedOrigins || []) origins.add(origin);
+  const allowedHosts = new Set([
+    "localhost",
+    "127.0.0.1",
+    ...(options.allowedHosts || []),
+  ]);
+  const serveWeb = options.serveWeb === true;
+  const webRoot = resolve(options.webRoot || "dist");
+  const webRootPrefix =
+    webRoot.endsWith("\\") || webRoot.endsWith("/") ? webRoot : webRoot + "/";
   for (const port of [options.webPort, options.previewPort].filter(
     (port) => port !== undefined,
   )) {
@@ -119,7 +130,9 @@ export function createApp(options = {}) {
   const server = http.createServer(async (req, res) => {
     const requestId = crypto.randomUUID();
     res.setHeader("x-request-id", requestId);
-    if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(req.headers.host || ""))
+    const host = req.headers.host || "";
+    const hostname = host.replace(/:\d+$/, "");
+    if (!allowedHosts.has(hostname))
       return send(res, 403, { error: "Host 不被允许" });
     if (
       (req.headers.origin && !origins.has(req.headers.origin)) ||
@@ -127,6 +140,49 @@ export function createApp(options = {}) {
     )
       return send(res, 403, { error: "拒绝跨站访问本机 API" });
     try {
+      const path = new URL(req.url, "http://localhost").pathname;
+      if (serveWeb && req.method === "GET" && !path.startsWith("/api/")) {
+        const relative = path === "/" ? "index.html" : path.slice(1);
+        const file = resolve(webRoot, relative);
+        if (
+          file === resolve(webRoot, "index.html") ||
+          file.startsWith(webRootPrefix)
+        ) {
+          try {
+            const body = await readFile(file);
+            const type = file.endsWith(".html")
+              ? "text/html; charset=utf-8"
+              : file.endsWith(".js") || file.endsWith(".mjs")
+                ? "text/javascript; charset=utf-8"
+                : file.endsWith(".css")
+                  ? "text/css; charset=utf-8"
+                  : file.endsWith(".svg")
+                    ? "image/svg+xml"
+                    : file.endsWith(".wasm")
+                      ? "application/wasm"
+                      : "application/octet-stream";
+            res.writeHead(200, {
+              "content-type": type,
+              "cache-control": file.endsWith("index.html")
+                ? "no-cache"
+                : "public, max-age=31536000, immutable",
+              "x-content-type-options": "nosniff",
+              "content-security-policy":
+                "default-src 'self'; connect-src 'self' https:; media-src 'self' blob:; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' blob:",
+            });
+            return res.end(body);
+          } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+          }
+        }
+        const index = await readFile(resolve(webRoot, "index.html"));
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-cache",
+          "x-content-type-options": "nosniff",
+        });
+        return res.end(index);
+      }
       const now = Date.now();
       for (const [id, session] of sessions)
         if (session.expires < now && !session.busy) sessions.delete(id);
@@ -151,7 +207,6 @@ export function createApp(options = {}) {
         );
       }
       const s = sessions.get(sid);
-      const path = new URL(req.url, "http://localhost").pathname;
       const requestOptions = {
         ...options,
         onUsage: (u) =>
@@ -349,11 +404,21 @@ if (
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   configureProxy();
-  const port = Number(process.env.API_PORT || 8787);
+  const port = Number(process.env.PORT || process.env.API_PORT || 8787);
+  const host = process.env.HOST || "127.0.0.1";
+  const list = (value) =>
+    String(value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
   createApp({
     dbPath: resolve(process.env.DATA_DIR || "data", "evidence.sqlite"),
     webPort: Number(process.env.WEB_PORT || 5173),
     previewPort: Number(process.env.PREVIEW_PORT || 4173),
+    allowedHosts: list(process.env.ALLOWED_HOSTS),
+    allowedOrigins: list(process.env.ALLOWED_ORIGINS),
+    serveWeb: process.env.SERVE_WEB === "1",
+    webRoot: resolve(process.env.WEB_ROOT || "dist"),
   })
     .on("error", (error) => {
       console.error(
@@ -363,7 +428,9 @@ if (
       );
       process.exitCode = 1;
     })
-    .listen(port, "127.0.0.1", () =>
-      console.log(`Evidence Loop API http://127.0.0.1:${port}`),
+    .listen(port, host, () =>
+      console.log(
+        `Evidence Loop ${process.env.SERVE_WEB === "1" ? "app" : "API"} http://${host}:${port}`,
+      ),
     );
 }

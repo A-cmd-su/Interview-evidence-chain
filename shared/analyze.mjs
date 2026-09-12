@@ -8,6 +8,8 @@ import {
   BRIEFING_VERSION,
   SENIORITIES,
   INTERVIEW_FOCI,
+  INTERVIEW_MODES,
+  INTERVIEW_LANGUAGES,
   DURATIONS,
 } from "./interviewSetup.mjs";
 import { validateResumeReview } from "./resume.mjs";
@@ -93,10 +95,18 @@ export function validateContext(input) {
     input.difficulty === undefined ? DEFAULT_DIFFICULTY : input.difficulty;
   if (!difficultyProfile(difficulty))
     throw new InputError("面试难度只能为基础、标准或进阶");
+  const interviewMode = input.interviewMode || "text";
+  const language = input.language || "zh-CN";
+  if (!INTERVIEW_MODES.some((item) => item.id === interviewMode))
+    throw new InputError("面试模式无效，请重新选择");
+  if (!INTERVIEW_LANGUAGES.some((item) => item.id === language))
+    throw new InputError("面试语言无效，请重新选择");
   return {
     jd: input.jd,
     resume: input.resume,
     difficulty,
+    interviewMode,
+    language,
     ...(input.flowVersion === FLOW_VERSION
       ? { flowVersion: FLOW_VERSION }
       : {}),
@@ -135,6 +145,12 @@ export function validateBriefing(value, jd) {
     (item) => item.minutes === value.durationMinutes,
   );
   if (!duration) throw new InputError("预计时长请选择15、30、45或60分钟");
+  const interviewMode = value.interviewMode || "text";
+  const language = value.language || "zh-CN";
+  if (!INTERVIEW_MODES.some((item) => item.id === interviewMode))
+    throw new InputError("面试模式无效，请重新选择");
+  if (!INTERVIEW_LANGUAGES.some((item) => item.id === language))
+    throw new InputError("面试语言无效，请重新选择");
   if (
     !Array.isArray(value.capabilities) ||
     value.capabilities.length < 1 ||
@@ -171,6 +187,8 @@ export function validateBriefing(value, jd) {
     focus: value.focus,
     durationMinutes: duration.minutes,
     questionCount: duration.questions,
+    interviewMode,
+    language,
   };
 }
 export function validatePreparation(input) {
@@ -258,6 +276,8 @@ export function parseBriefing(raw, context) {
     seniorityEvidence,
     focus: "balanced",
     durationMinutes: 30,
+    interviewMode: "text",
+    language: "zh-CN",
   };
 }
 export function parseQuestions(raw, context) {

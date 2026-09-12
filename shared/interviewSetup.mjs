@@ -44,6 +44,37 @@ export const INTERVIEW_FOCI = [
     guidance: "侧重沟通、冲突处理、协作和复盘，用具体事件评价，不推断性格。",
   },
 ];
+export const INTERVIEW_MODES = [
+  {
+    id: "text",
+    label: "文字面试",
+    guidance: "以键盘输入回答，适合快速练习和低权限环境。",
+  },
+  {
+    id: "voice",
+    label: "语言面试",
+    guidance: "使用浏览器麦克风录音并校对转写，再提交文字证据。",
+  },
+  {
+    id: "video",
+    label: "视频面试",
+    guidance: "使用摄像头和麦克风本地录制，确认转写文字后再评分。",
+  },
+];
+export const INTERVIEW_LANGUAGES = [
+  { id: "zh-CN", label: "中文", instruction: "使用简体中文提问、追问和解释。" },
+  {
+    id: "en-US",
+    label: "English",
+    instruction:
+      "Ask questions and follow-ups in English; keep explanations in English.",
+  },
+  {
+    id: "ja-JP",
+    label: "日本語",
+    instruction: "質問、追質問、説明を日本語で行う。",
+  },
+];
 export const DURATIONS = [
   { minutes: 15, questions: 3 },
   { minutes: 30, questions: 5 },
@@ -52,7 +83,14 @@ export const DURATIONS = [
 ];
 export const setupLabel = (choices, id) =>
   choices.find((item) => item.id === id)?.label || "未记录";
+export const setupChoice = (choices, id) =>
+  choices.find((item) => item.id === id) || null;
 export function briefingInstruction(briefing) {
   if (!briefing) return "";
-  return `用户已确认岗位能力标签及其JD原文。仅依据确认后的标签解释岗位，不能自行覆盖用户校对。目标资历=${SENIORITIES.find((item) => item.id === briefing.seniority).label}：${SENIORITIES.find((item) => item.id === briefing.seniority).guidance}侧重点=${INTERVIEW_FOCI.find((item) => item.id === briefing.focus).label}：${INTERVIEW_FOCI.find((item) => item.id === briefing.focus).guidance}预计${briefing.durationMinutes}分钟，共${briefing.questionCount}道主问题，时长包含回答和追问预算。目标资历与难度是不同条件，用户选择不是已经具备该资历的证据，不得虚构JD要求或候选人经历。`;
+  const mode = setupChoice(INTERVIEW_MODES, briefing.interviewMode || "text");
+  const language = setupChoice(
+    INTERVIEW_LANGUAGES,
+    briefing.language || "zh-CN",
+  );
+  return `用户已确认岗位能力标签及其JD原文。仅依据确认后的标签解释岗位，不能自行覆盖用户校对。目标资历=${SENIORITIES.find((item) => item.id === briefing.seniority).label}：${SENIORITIES.find((item) => item.id === briefing.seniority).guidance}侧重点=${INTERVIEW_FOCI.find((item) => item.id === briefing.focus).label}：${INTERVIEW_FOCI.find((item) => item.id === briefing.focus).guidance}面试模式=${mode.label}：${mode.guidance}；目标语言=${language.label}：${language.instruction}预计${briefing.durationMinutes}分钟，共${briefing.questionCount}道主问题，时长包含回答和追问预算。目标资历与难度是不同条件，用户选择不是已经具备该资历的证据，不得虚构JD要求或候选人经历。`;
 }
