@@ -18,6 +18,7 @@ export const initialWorkspace = () => ({
   session: null,
   sessions: [],
   records: [],
+  materials: [],
   selected: null,
   done: {},
 });
@@ -74,6 +75,7 @@ export function questionState(question) {
   return {
     ...question,
     draft: "",
+    answerCapture: null,
     prompt: question.question,
     ready: true,
     attempts: [],
@@ -86,14 +88,16 @@ export function sessionSnapshot(session) {
     jd: session.jd,
     resume: session.resume,
     difficulty: session.difficulty || null,
-    interviewMode: session.interviewMode || "text",
-    language: session.language || "zh-CN",
+    interviewMode:
+      session.interviewMode || session.briefing?.interviewMode || null,
+    language: session.language || session.briefing?.language || null,
     difficultyPolicy: session.difficultyPolicy || null,
     briefing: session.briefing || null,
     flowVersion: session.flowVersion || null,
     resumeReview: session.resumeReview || null,
     deadline: session.deadline || null,
     originReportId: session.originReportId || null,
+    practiceTaskId: session.practiceTaskId || null,
     createdAt: session.createdAt || null,
     capabilities: session.capabilities || [],
     pathComplete: true,
@@ -146,6 +150,7 @@ export function followQuestion(question, report, session) {
     ready: true,
     prompt: report.followUp.question,
     draft: "",
+    answerCapture: null,
   };
 }
 export function acceptAnswer(workspace, report, id) {
@@ -170,6 +175,7 @@ export function acceptAnswer(workspace, report, id) {
     questionId: q.id,
     originReportId: workspace.session.originReportId || null,
     practiceKind: workspace.session.practiceKind || null,
+    practiceTaskId: workspace.session.practiceTaskId || null,
     practiceGap: workspace.session.practiceGap || null,
     practiceCriterion: workspace.session.practiceCriterion || null,
     equivalence: workspace.session.equivalence || null,

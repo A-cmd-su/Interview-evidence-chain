@@ -9,9 +9,8 @@ test("complete online flow: resume review, refresh recovery, report, training, h
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "准备下一场面试" }),
+    page.getByRole("heading", { name: "先连接模型，再开始面试" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "连接模型", exact: true }).click();
   await page
     .getByLabel("API 地址", { exact: false })
     .fill("http://127.0.0.1:8798/v1");
@@ -80,7 +79,7 @@ test("complete online flow: resume review, refresh recovery, report, training, h
   await page.getByRole("button", { name: "训练空间", exact: true }).click();
   await page.getByRole("checkbox", { name: /我同意将本轮岗位/ }).check();
   await page.getByRole("button", { name: "训练计划", exact: true }).click();
-  await page.getByRole("button", { name: "换场景验证" }).click();
+  await page.getByRole("button", { name: "换场景验证", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "确认考察目标一致，开始复测" }),
   ).toBeVisible();
@@ -173,9 +172,8 @@ test("cancelled job retains draft; profiles have no plaintext key", async ({
   expect(seeded.ok()).toBe(true);
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "准备下一场面试" }),
+    page.getByRole("heading", { name: "先连接模型，再开始面试" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "连接模型", exact: true }).click();
   await page
     .getByLabel("API 地址", { exact: false })
     .fill("http://127.0.0.1:8798/v1");
@@ -190,7 +188,11 @@ test("cancelled job retains draft; profiles have no plaintext key", async ({
   ).toBeVisible();
   const profiles = await page.request.get("/api/profiles");
   expect(JSON.stringify(await profiles.json())).not.toContain("apiKey");
-  await page.getByRole("button", { name: "切换并重新确认发送" }).click();
+  await page
+    .locator("article.history-row")
+    .filter({ hasText: "本机测试配置 · fixture-browser" })
+    .getByRole("button", { name: "切换并重新确认发送" })
+    .click();
   await page.getByRole("button", { name: "模拟面试", exact: true }).click();
   await page.getByRole("checkbox", { name: /我同意将本轮岗位/ }).check();
   await page.getByRole("button", { name: "回答追问", exact: true }).click();

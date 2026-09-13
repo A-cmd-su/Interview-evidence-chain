@@ -145,6 +145,8 @@ export function trendGroups(records) {
       r.input.jd,
       r.input.resume,
       r.input.difficulty,
+      r.input.language || r.input.briefing?.language || null,
+      r.input.interviewMode || r.input.briefing?.interviewMode || null,
       r.difficultyPolicy,
       r.input.briefing,
       r.input.history?.map((t) => t.question),
@@ -203,6 +205,11 @@ export function compareReports(report, previous) {
     return result("缺少难度记录，不比较总分");
   if (report.input.difficulty !== previous.input.difficulty)
     return result("面试难度不同，不比较总分");
+  for (const key of ["language", "interviewMode"]) {
+    const value = (r) => r.input[key] || r.input.briefing?.[key] || null;
+    if (value(report) !== value(previous))
+      return result("语言或面试方式不同，不比较总分");
+  }
   if (
     JSON.stringify(report.input.briefing || null) !==
     JSON.stringify(previous.input.briefing || null)

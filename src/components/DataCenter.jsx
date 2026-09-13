@@ -2,6 +2,9 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api";
 import { availableSessions, trendGroups } from "../sessionSummary";
 import { initialWorkspace } from "../state";
+import { BackupPanel } from "./BackupPanel";
+import { BudgetPanel } from "./BudgetPanel";
+import { AsrSettings } from "./AsrSettings";
 
 export function downloadJson(value, name) {
   const url = URL.createObjectURL(
@@ -32,6 +35,7 @@ export function DataCenter({
     [deleting, setDeleting] = useState(null),
     [renaming, setRenaming] = useState(null),
     [name, setName] = useState("");
+  const [historyPage, setHistoryPage] = useState(0);
   useEffect(() => {
     Promise.all([api("/preferences"), api("/usage")])
       .then(([p, u]) => {
@@ -74,6 +78,9 @@ export function DataCenter({
       session: workspace.session?.id === id ? null : workspace.session,
       sessions: workspace.sessions.filter((s) => s.id !== id),
       records: workspace.records.filter((r) => !ids.has(r.id)),
+      materials: (workspace.materials || []).filter(
+        (m) => m.kind !== "question" || !ids.has(m.reportId),
+      ),
       selected: ids.has(workspace.selected) ? null : workspace.selected,
       done: Object.fromEntries(
         Object.entries(workspace.done).filter(
@@ -88,12 +95,33 @@ export function DataCenter({
   const inputTokens = usage.reduce((sum, u) => sum + (u.inputTokens || 0), 0),
     outputTokens = usage.reduce((sum, u) => sum + (u.outputTokens || 0), 0);
   const groups = trendGroups(workspace.records);
+  const pages = Math.max(1, Math.ceil(sessions.length / 12)),
+    currentPage = Math.min(historyPage, pages - 1);
+  const spending = [
+    ...new Set(usage.filter((u) => u.sessionId).map((u) => u.sessionId)),
+  ].map((id) => {
+    const rows = usage.filter((u) => u.sessionId === id),
+      currencies = [...new Set(rows.map((u) => u.currency).filter(Boolean))];
+    return {
+      id,
+      title:
+        availableSessions(workspace).find((s) => s.id === id)?.title ||
+        "准备或其他模型任务",
+      unknown:
+        rows.some((u) => u.estimatedCost == null) || currencies.length !== 1,
+      currency: currencies[0],
+      cost: rows.reduce((sum, u) => sum + (u.estimatedCost || 0), 0),
+    };
+  });
   return (
     <div className="page data-center">
       <h2>历史、隐私与用量</h2>
+      <BackupPanel persist={persist} />
+      <BudgetPanel />
+      <AsrSettings />
       <p>
-        记录保存在本机
-        SQLite。此版本面向本机单用户，其他本机使用者也可能访问本地服务。
+        记录保存在运行服务的设备上的 SQLite
+        中。个人访问密码可保护历史、备份和模型设置。
       </p>
       {error && (
         <p className="error" role="alert">
@@ -107,10 +135,13 @@ export function DataCenter({
         <input
           id="history-search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setHistoryPage(0);
+          }}
         />
         {sessions.length ? (
-          sessions.map((s) => (
+          sessions.slice(currentPage * 12, currentPage * 12 + 12).map((s) => (
             <article className="history-row" key={s.id}>
               <div>
                 <b>{s.title}</b>
@@ -195,7 +226,40 @@ export function DataCenter({
         ) : (
           <p>暂无匹配的面试记录。</p>
         )}
+        <div className="button-row">
+          <button
+            className="text-button"
+            disabled={!currentPage}
+            onClick={() => setHistoryPage(currentPage - 1)}
+          >
+            上一页
+          </button>
+          <span>
+            第 {currentPage + 1} / {pages} 页 · {sessions.length} 场
+          </span>
+          <button
+            className="text-button"
+            disabled={currentPage + 1 >= pages}
+            onClick={() => setHistoryPage(currentPage + 1)}
+          >
+            下一页
+          </button>
+        </div>
       </section>
+      <details className="utility-panel">
+        <summary>按面试汇总实际用量的费用</summary>
+        <p>
+          历史费用按每次请求保存的模型费率计算。这里只汇总最近2000次调用，预算预检会读取本次面试全部用量；转写和缺少
+          usage 的调用显示未知。
+        </p>
+        {spending.slice(0, 30).map((s) => (
+          <p key={s.id}>
+            {s.title} ·{" "}
+            {s.unknown ? "无法完整估算" : s.cost.toFixed(4) + " " + s.currency}
+            <small>请求组 {s.id}</small>
+          </p>
+        ))}
+      </details>
       <section className="utility-panel">
         <h3>长期能力趋势</h3>
         <p>

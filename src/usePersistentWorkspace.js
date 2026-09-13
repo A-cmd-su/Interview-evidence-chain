@@ -104,8 +104,15 @@ export function usePersistentWorkspace() {
       }
     };
     window.addEventListener("beforeunload", leave);
-    return () => window.removeEventListener("beforeunload", leave);
-  }, [storageError]);
+    const restored = () => {
+      if (ready) persist(current.current).catch(() => {});
+    };
+    window.addEventListener("access-restored", restored);
+    return () => {
+      window.removeEventListener("beforeunload", leave);
+      window.removeEventListener("access-restored", restored);
+    };
+  }, [storageError, ready]);
   return {
     workspace,
     setWorkspace,

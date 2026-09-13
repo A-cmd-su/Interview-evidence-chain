@@ -5,3 +5,8 @@ test-results
 .playwright-mcp
 .git
 .env
+.env.*
+!.env.example
+playwright-report
+.codex
+tests

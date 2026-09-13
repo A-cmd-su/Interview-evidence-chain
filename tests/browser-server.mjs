@@ -6,11 +6,35 @@ http
   .createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
+    if (req.url.endsWith("/audio/transcriptions")) {
+      // Synthetic ASR endpoint, only in the test runner.
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          text: "I checked the rollback threshold before launch.",
+          usage: { input_tokens: 10, output_tokens: 9 },
+        }),
+      );
+      return;
+    }
     const body = JSON.parse(Buffer.concat(chunks).toString());
     const sys = body.messages?.find((m) => m.role === "system")?.content || "";
     const user = body.messages?.find((m) => m.role === "user")?.content || "{}";
     let response;
-    if (sys.includes("任务=resume")) {
+    if (sys.includes("任务=language")) {
+      const data = JSON.parse(user);
+      response = chatResponse({
+        summary: "测试文字表达观察",
+        observations: [
+          {
+            quote: data.answer,
+            aspect: "结构",
+            suggestion: "将本人行动放在句首",
+            rewrite: data.answer,
+          },
+        ],
+      });
+    } else if (sys.includes("任务=resume")) {
       const data = JSON.parse(user);
       response = chatResponse({
         items: [{ kind: "项目", quote: data.resume, start: 0 }],

@@ -3,10 +3,16 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { InputError } from "../shared/analyze.mjs";
+import { validateMaterials } from "../shared/materials.mjs";
 
 export const digest = (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export function validateWorkspace(w) {
+  try {
+    validateMaterials(w?.materials);
+  } catch (e) {
+    throw new InputError(e.message);
+  }
   if (
     !w ||
     w.version !== 2 ||
@@ -152,6 +158,31 @@ export function validateWorkspace(w) {
       )
         throw new InputError("训练验收引用无效");
     }
+    if (r.input.answerCapture) {
+      const c = r.input.answerCapture;
+      if (
+        !["voice", "video"].includes(c.kind) ||
+        c.confirmedText !== r.input.answer ||
+        !Number.isFinite(Date.parse(c.confirmedAt))
+      )
+        throw new InputError("转写确认记录与回答不一致");
+      text(c.rawTranscript, "原始转写", 8000);
+    }
+    if (r.languageAnalysis) {
+      text(r.languageAnalysis.summary, "语言观察", 1500);
+      if (
+        !Array.isArray(r.languageAnalysis.observations) ||
+        r.languageAnalysis.observations.length > 5
+      )
+        throw new InputError("语言评估结构无效");
+      for (const o of r.languageAnalysis.observations) {
+        span(o, r.input.answer);
+        text(o.suggestion, "语言建议", 2000);
+        text(o.rewrite, "表达示例", 2000);
+        if (!["清晰度", "用词", "结构"].includes(o.aspect))
+          throw new InputError("语言评估维度无效");
+      }
+    }
   }
   for (const s of [w.session, ...w.sessions].filter(Boolean)) {
     for (const c of s.capabilities) {
@@ -187,6 +218,10 @@ export function validateWorkspace(w) {
 export function createStore(path = ":memory:") {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
+  if (db.prepare("PRAGMA quick_check").get().quick_check !== "ok") {
+    db.close();
+    throw new Error("数据库完整性检查未通过，请先保留文件并从备份恢复");
+  }
   if (db.prepare("PRAGMA user_version").get().user_version > 1) {
     db.close();
     throw new Error("数据库来自更新版本，请使用匹配版本的应用，未修改数据");
@@ -262,6 +297,11 @@ export function createStore(path = ":memory:") {
         session: expired.has(w.session?.id) ? null : w.session,
         sessions: w.sessions.filter((s) => !expired.has(s.id)),
         records,
+        materials: (w.materials || []).filter(
+          (m) =>
+            Date.parse(m.createdAt) >= cutoff &&
+            (m.kind !== "question" || keep.has(m.reportId)),
+        ),
         selected: keep.has(w.selected) ? w.selected : null,
         done: Object.fromEntries(
           Object.entries(w.done).filter(([k]) => keep.has(k.split(":")[0])),
@@ -311,6 +351,13 @@ export function createStore(path = ":memory:") {
       db
         .prepare("SELECT value FROM usage ORDER BY id DESC LIMIT 2000")
         .all()
+        .map((r) => JSON.parse(r.value)),
+    usageForSession: (id) =>
+      db
+        .prepare(
+          "SELECT value FROM usage WHERE json_extract(value, '$.sessionId')=? ORDER BY id",
+        )
+        .all(id)
         .map((r) => JSON.parse(r.value)),
     backup: () => {
       const value = get("workspace").value;

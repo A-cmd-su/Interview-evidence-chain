@@ -23,6 +23,14 @@ export function Interview({
   confirmEquivalent,
 }) {
   const [now, setNow] = useState(Date.now());
+  const [mediaActive, setMediaActive] = useState(false);
+  const interviewMode =
+    session.interviewMode || session.briefing?.interviewMode || "text";
+  const language =
+    session.briefing?.languageSettings?.answerLanguage ||
+    session.language ||
+    session.briefing?.language ||
+    "zh-CN";
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -158,7 +166,7 @@ export function Interview({
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  submit();
+                  if (!mediaActive) submit();
                 }}
               >
                 <label className="sr-only" htmlFor="answer">
@@ -173,7 +181,7 @@ export function Interview({
                   onKeyDown={(e) => {
                     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
                       e.preventDefault();
-                      submit();
+                      if (!mediaActive) submit();
                     }
                   }}
                   placeholder="具体说说：当时的背景、你做了什么、如何验证结果…"
@@ -184,22 +192,28 @@ export function Interview({
                   </span>
                   <button
                     className="primary"
-                    disabled={Boolean(busy) || !question.draft.trim()}
+                    disabled={
+                      Boolean(busy) || mediaActive || !question.draft.trim()
+                    }
                   >
                     {busy === "analyze" ? "评估与复核中…" : "提交回答"}
                     <ArrowRight size={16} />
                   </button>
                 </div>
-                {session.interviewMode === "video" ? (
+                {interviewMode === "video" ? (
                   <VideoInput
+                    key={session.id + question.id + question.prompt}
+                    onActiveChange={setMediaActive}
                     disabled={Boolean(busy)}
-                    language={session.language}
+                    language={language}
                     onConfirm={changeAnswer}
                   />
-                ) : session.interviewMode === "voice" ? (
+                ) : interviewMode === "voice" ? (
                   <VoiceInput
+                    key={session.id + question.id + question.prompt}
+                    onActiveChange={setMediaActive}
                     disabled={Boolean(busy)}
-                    language={session.language}
+                    language={language}
                     onConfirm={changeAnswer}
                   />
                 ) : (
@@ -208,8 +222,10 @@ export function Interview({
                       文字面试：你可以直接输入回答，也可以使用下方语音辅助后校对转写。
                     </p>
                     <VoiceInput
+                      key={session.id + question.id + question.prompt}
+                      onActiveChange={setMediaActive}
                       disabled={Boolean(busy)}
-                      language={session.language}
+                      language={language}
                       onConfirm={changeAnswer}
                     />
                   </>
@@ -230,7 +246,7 @@ export function Interview({
                 ? "视频只用于本页回看；评分只发送你确认后的文字。"
                 : session.interviewMode === "voice"
                   ? "录音只用于本页回听；评分只发送你确认后的文字。"
-                  : "每次提交通常包含初评与语义复核两次模型调用，均可能计费。"}{" "}
+                  : "回答会自动保存到工作区。"}{" "}
               每次提交通常包含初评与语义复核两次模型调用，均可能计费。
             </div>
           </div>

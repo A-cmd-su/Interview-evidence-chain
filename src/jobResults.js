@@ -39,6 +39,9 @@ export function applyJobResult(w, pending, result) {
         difficulty: result.difficulty,
         difficultyPolicy: result.difficultyPolicy,
         briefing: result.briefing,
+        interviewMode:
+          result.briefing?.interviewMode || context.interviewMode || "text",
+        language: result.briefing?.language || context.language || "zh-CN",
         capabilities: result.capabilities,
         questions: result.questions.map(questionState),
         current: 0,
@@ -77,6 +80,7 @@ export function applyJobResult(w, pending, result) {
       current: 0,
       originReportId: original.id,
       practiceKind: "equivalent",
+      practiceTaskId: pending.practiceTaskId || null,
       practiceCriterion: context.criterion,
       equivalence: {
         originalQuestion: context.question,

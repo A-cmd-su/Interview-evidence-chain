@@ -1,4 +1,5 @@
 // Data contracts for online model output. This module never generates a score.
+import { languageSettings } from "./language.mjs";
 import {
   DEFAULT_DIFFICULTY,
   difficultyProfile,
@@ -95,18 +96,33 @@ export function validateContext(input) {
     input.difficulty === undefined ? DEFAULT_DIFFICULTY : input.difficulty;
   if (!difficultyProfile(difficulty))
     throw new InputError("面试难度只能为基础、标准或进阶");
-  const interviewMode = input.interviewMode || "text";
-  const language = input.language || "zh-CN";
+  const briefing =
+    input.briefing !== undefined
+      ? validateBriefing(input.briefing, input.jd)
+      : null;
+  const interviewMode =
+    briefing?.interviewMode ?? input.interviewMode ?? "text";
+  const language = briefing?.language ?? input.language ?? "zh-CN";
   if (!INTERVIEW_MODES.some((item) => item.id === interviewMode))
     throw new InputError("面试模式无效，请重新选择");
   if (!INTERVIEW_LANGUAGES.some((item) => item.id === language))
     throw new InputError("面试语言无效，请重新选择");
+  let languages;
+  try {
+    languages = languageSettings(
+      briefing?.languageSettings || input.languageSettings,
+      language,
+    );
+  } catch (e) {
+    throw new InputError(e.message);
+  }
   return {
     jd: input.jd,
     resume: input.resume,
     difficulty,
     interviewMode,
     language,
+    languageSettings: languages,
     ...(input.flowVersion === FLOW_VERSION
       ? { flowVersion: FLOW_VERSION }
       : {}),
@@ -121,9 +137,7 @@ export function validateContext(input) {
           })(),
         }
       : {}),
-    ...(input.briefing !== undefined
-      ? { briefing: validateBriefing(input.briefing, input.jd) }
-      : {}),
+    ...(briefing ? { briefing } : {}),
   };
 }
 export function validateBriefing(value, jd) {
@@ -145,12 +159,18 @@ export function validateBriefing(value, jd) {
     (item) => item.minutes === value.durationMinutes,
   );
   if (!duration) throw new InputError("预计时长请选择15、30、45或60分钟");
-  const interviewMode = value.interviewMode || "text";
-  const language = value.language || "zh-CN";
+  const interviewMode = value.interviewMode ?? "text";
+  const language = value.language ?? "zh-CN";
   if (!INTERVIEW_MODES.some((item) => item.id === interviewMode))
     throw new InputError("面试模式无效，请重新选择");
   if (!INTERVIEW_LANGUAGES.some((item) => item.id === language))
     throw new InputError("面试语言无效，请重新选择");
+  let languages;
+  try {
+    languages = languageSettings(value.languageSettings, language);
+  } catch (e) {
+    throw new InputError(e.message);
+  }
   if (
     !Array.isArray(value.capabilities) ||
     value.capabilities.length < 1 ||
@@ -189,6 +209,7 @@ export function validateBriefing(value, jd) {
     questionCount: duration.questions,
     interviewMode,
     language,
+    languageSettings: languages,
   };
 }
 export function validatePreparation(input) {
@@ -203,6 +224,24 @@ export function validateAnswer(input) {
   const context = validateContext(input);
   str(input.answer, "回答", 8000, InputError);
   str(input.question, "当前问题", 2000, InputError);
+  let answerCapture;
+  if (input.answerCapture) {
+    const c = input.answerCapture;
+    if (
+      !["voice", "video"].includes(c.kind) ||
+      c.confirmedText !== input.answer ||
+      typeof c.rawTranscript !== "string" ||
+      c.rawTranscript.length > 8000 ||
+      !Number.isFinite(Date.parse(c.confirmedAt))
+    )
+      throw new InputError("转写确认与当前回答不一致，请重新校对确认");
+    answerCapture = {
+      kind: c.kind,
+      rawTranscript: c.rawTranscript,
+      confirmedText: c.confirmedText,
+      confirmedAt: c.confirmedAt,
+    };
+  }
   const history = input.history ?? [];
   if (!Array.isArray(history) || history.length > (context.flowVersion ? 8 : 2))
     throw new InputError("每道主问题最多两次追问");
@@ -221,6 +260,7 @@ export function validateAnswer(input) {
       : {}),
     question: input.question,
     answer: input.answer,
+    ...(answerCapture ? { answerCapture } : {}),
     history: history.map(({ question, answer }) => ({ question, answer })),
   };
 }
@@ -276,8 +316,8 @@ export function parseBriefing(raw, context) {
     seniorityEvidence,
     focus: "balanced",
     durationMinutes: 30,
-    interviewMode: "text",
-    language: "zh-CN",
+    interviewMode: context.interviewMode || "text",
+    language: context.language || "zh-CN",
   };
 }
 export function parseQuestions(raw, context) {

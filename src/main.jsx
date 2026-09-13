@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   PanelsTopLeft,
@@ -10,12 +10,15 @@ import {
   Link2,
 } from "lucide-react";
 import { api } from "./api";
+import { AccessGate } from "./components/AccessGate";
 import { usePersistentWorkspace } from "./usePersistentWorkspace";
 import { pollJob } from "./jobs";
 import { applyJobResult } from "./jobResults";
 import { FLOW_VERSION } from "../shared/flow.mjs";
 import { validateResumeReview, redactPersonal } from "../shared/resume.mjs";
-import { DataCenter } from "./components/DataCenter";
+const DataCenter = lazy(() =>
+  import("./components/DataCenter").then((m) => ({ default: m.DataCenter })),
+);
 import { readResumeFile } from "./resumeImport";
 import {
   questionState,
@@ -26,9 +29,22 @@ import {
 import { ModelSettings } from "./components/ModelSettings";
 import { SourceModal } from "./components/Modal";
 import { Workspace } from "./components/Workspace";
-import { Interview } from "./components/Interview";
-import { Report, Plan } from "./components/Report";
-import { SessionReport } from "./components/SessionReport";
+import { PersonalLibrary } from "./components/PersonalLibrary";
+import { MasteryBoard } from "./components/MasteryBoard";
+const Interview = lazy(() =>
+  import("./components/Interview").then((m) => ({ default: m.Interview })),
+);
+const Report = lazy(() =>
+  import("./components/Report").then((m) => ({ default: m.Report })),
+);
+const Plan = lazy(() =>
+  import("./components/Report").then((m) => ({ default: m.Plan })),
+);
+const SessionReport = lazy(() =>
+  import("./components/SessionReport").then((m) => ({
+    default: m.SessionReport,
+  })),
+);
 import { availableSessions } from "./sessionSummary";
 import { validatePreparation } from "../shared/analyze.mjs";
 import {
@@ -44,6 +60,15 @@ const NAV = [
   ["plan", "训练计划", Target],
   ["data", "历史与设置", FileSearch],
 ];
+function isLocalModel(config) {
+  try {
+    return ["127.0.0.1", "localhost", "[::1]"].includes(
+      new URL(config.baseUrl || config.endpoint).hostname,
+    );
+  } catch {
+    return false;
+  }
+}
 function App() {
   const { workspace, setWorkspace, ready, storageError, persist, replace } =
     usePersistentWorkspace();
@@ -52,7 +77,8 @@ function App() {
   const recovering = useRef(false);
   const [page, setPage] = useState("workspace"),
     [config, setConfig] = useState(null),
-    [modelOpen, setModelOpen] = useState(false);
+    [modelOpen, setModelOpen] = useState(false),
+    [configLoaded, setConfigLoaded] = useState(false);
   const [reportView, setReportView] = useState("session"),
     [summarySessionId, setSummarySessionId] = useState(null);
   const [busy, setBusy] = useState(""),
@@ -60,6 +86,7 @@ function App() {
     [toast, setToast] = useState("");
   const [consent, setConsent] = useState(false),
     [source, setSource] = useState(null);
+  const [budgetGate, setBudgetGate] = useState(null);
   const lock = useRef(false),
     toastTimer = useRef(null);
   const errorSummary = useRef(null);
@@ -70,10 +97,19 @@ function App() {
     let alive = true;
     api("/health")
       .then((r) => {
-        if (alive) setConfig(r.config);
+        if (alive) {
+          setConfig(r.config);
+          setConfigLoaded(true);
+          if (!r.config || (!r.config.hasKey && !isLocalModel(r.config)))
+            setModelOpen(true);
+        }
       })
       .catch((e) => {
-        if (alive) setError(e.message);
+        if (alive) {
+          setError(e.message);
+          setConfigLoaded(true);
+          setModelOpen(true);
+        }
       });
     return () => {
       alive = false;
@@ -115,6 +151,7 @@ function App() {
   }
   function navigate(next) {
     if (lock.current) return;
+    setBudgetGate(null);
     setPage(next);
     setError("");
     window.scrollTo(0, 0);
@@ -153,16 +190,62 @@ function App() {
   }
   async function executeJob(operation, input, extra = {}) {
     const pending = { id: crypto.randomUUID(), operation, input, ...extra };
+    const estimate = await api("/jobs/estimate", {
+      method: "POST",
+      body: pending,
+    });
+    if (estimate.exceeded) {
+      setBudgetGate({ pending, estimate });
+      throw new Error("请先处理费用预检提醒，尚未提交模型任务");
+    }
+    return sendJob(pending);
+  }
+  async function sendJob(pending) {
+    if (
+      pending.operation === "analyze" &&
+      (workspace.session?.id !== pending.sessionId ||
+        workspace.session.questions[workspace.session.current]?.id !==
+          pending.questionId ||
+        workspace.session.questions[workspace.session.current]?.draft !==
+          pending.input.answer)
+    )
+      throw new Error("待发送的回答已变化，请重新提交并检查费用预估");
+    if (
+      ["resume", "briefing", "prepare"].includes(pending.operation) &&
+      (workspace.draft.jd !== pending.input.jd ||
+        workspace.draft.resume !== pending.input.resume)
+    )
+      throw new Error("资料已变化，请重新发起请求");
     const saved = { ...workspace, pending };
     await persist(saved);
     setWorkspace(saved);
-    await api("/jobs", { method: "POST", body: pending });
+    try {
+      await api("/jobs", { method: "POST", body: pending });
+    } catch (e) {
+      if (e.status && e.status < 500)
+        setWorkspace((w) => ({ ...w, pending: null }));
+      throw e;
+    }
     const result = await pollJob(pending.id, setJobStatus);
     setWorkspace((w) => applyJobResult(w, pending, result));
     return result;
   }
   async function extractResume() {
     if (!authorized()) return;
+    const previous = (workspace.materials || []).find(
+      (m) =>
+        m.kind === "resume" &&
+        m.source === workspace.draft.resume &&
+        m.review?.confirmed,
+    );
+    if (previous) {
+      setWorkspace((w) => ({
+        ...w,
+        draft: { ...w.draft, resumeReview: previous.review },
+      }));
+      notify("已复用原文一致的校对结果，未调用模型");
+      return;
+    }
     await run("resume", () =>
       executeJob("resume", {
         jd: workspace.draft.jd,
@@ -206,6 +289,21 @@ function App() {
       setError("请填写岗位 JD 与个人简历");
       return;
     }
+    const template = (workspace.materials || []).find(
+      (m) => m.kind === "job" && m.source === context.jd && m.briefing,
+    );
+    if (template) {
+      setWorkspace((w) => ({
+        ...w,
+        preparation: {
+          source: context,
+          proposal: template.briefing,
+          edited: template.briefing,
+        },
+      }));
+      notify("已复用相同岗位的标签，请校对本次设置");
+      return;
+    }
     await run("briefing", async () => {
       await executeJob("briefing", context);
       notify("岗位信息已提取，请校对确认后再出题");
@@ -245,6 +343,12 @@ function App() {
         ? { criterion: session.practiceCriterion }
         : {}),
       difficulty: session.difficulty || DEFAULT_DIFFICULTY,
+      interviewMode:
+        session.interviewMode || session.briefing?.interviewMode || "text",
+      language: session.language || session.briefing?.language || "zh-CN",
+      ...(question.answerCapture
+        ? { answerCapture: question.answerCapture }
+        : {}),
       ...(session.briefing ? { briefing: session.briefing } : {}),
       question: question.prompt,
       answer: question.draft,
@@ -305,6 +409,9 @@ function App() {
             difficulty: original.input.difficulty || DEFAULT_DIFFICULTY,
             interviewMode: original.input.interviewMode || "text",
             language: original.input.language || "zh-CN",
+            ...(original.input.briefing
+              ? { briefing: original.input.briefing }
+              : {}),
             ...(original.input.flowVersion
               ? {
                   flowVersion: original.input.flowVersion,
@@ -315,7 +422,7 @@ function App() {
             criterion,
             requirement: original.questionRequirement,
           },
-          { originReportId: original.id },
+          { originReportId: original.id, practiceTaskId: task?.id || null },
         );
         setPage("interview");
       });
@@ -353,6 +460,7 @@ function App() {
         practiceKind: task ? "targeted" : "retest",
         practiceGap: task?.gap || null,
         practiceCriterion: criterion,
+        practiceTaskId: task?.id || null,
         ...(original.input.flowVersion
           ? {
               flowVersion: original.input.flowVersion,
@@ -388,6 +496,7 @@ function App() {
   function saveConfig(value) {
     setConfig(value);
     setConsent(false);
+    setBudgetGate(null);
     notify(
       value.testedAt
         ? "模型已保存，连接测试通过"
@@ -399,6 +508,15 @@ function App() {
     : config.testedAt
       ? "连接测试通过"
       : "配置已保存 · 待测试";
+  const configUsable =
+    Boolean(config) &&
+    (() => {
+      try {
+        return config.hasKey || isLocalModel(config);
+      } catch {
+        return false;
+      }
+    })();
   if (!ready)
     return (
       <div className="page">
@@ -409,6 +527,42 @@ function App() {
             <button onClick={() => location.reload()}>重新连接</button>
           </p>
         )}
+      </div>
+    );
+  if (!configLoaded)
+    return (
+      <div className="page access-page">
+        <h1>正在读取模型设置…</h1>
+        <p>模型设置会从本机持久化配置恢复，Key 不写入浏览器。</p>
+      </div>
+    );
+  if (!configUsable)
+    return (
+      <div className="app startup-model">
+        <div className="page access-page">
+          <h1>先连接模型，再开始面试</h1>
+          <p>
+            为了避免资料在模型未准备好时进入页面，请先保存一个模型配置。配置档案和（可选的）Key会持久化保存，Key只进入系统凭据存储。
+          </p>
+          {modelOpen && (
+            <ModelSettings
+              saved={config}
+              close={() => setModelOpen(false)}
+              onSave={saveConfig}
+              onClear={() => setConfig(null)}
+            />
+          )}{" "}
+          {!modelOpen && (
+            <button className="primary" onClick={() => setModelOpen(true)}>
+              打开模型设置
+            </button>
+          )}{" "}
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+        </div>
       </div>
     );
   return (
@@ -473,355 +627,474 @@ function App() {
         </div>
       </aside>
       <main id="main">
-        <header className="topbar">
-          <div>
-            <span className="eyebrow">MY WORKSPACE / {page.toUpperCase()}</span>
-            <h1>{NAV.find((n) => n[0] === page)[1]}</h1>
-          </div>
-          <button
-            className="model-button"
-            onClick={() => setModelOpen(true)}
-            disabled={Boolean(busy)}
-          >
-            <span
-              className={config?.testedAt ? "connected-dot" : "warning-dot"}
-            />
-            {config?.model || "连接模型"}
-            <SlidersHorizontal size={15} />
-          </button>
-        </header>
-        {storageError && (
-          <div className="error" role="alert">
-            {storageError}
-          </div>
-        )}
-        {error && (
-          <div
-            className="error global-error"
-            role="alert"
-            tabIndex={-1}
-            ref={errorSummary}
-          >
-            {error}
-          </div>
-        )}
-        {workspace.pending && (
-          <div className="utility-panel" role="status">
-            <b>请求 {workspace.pending.id}</b>
-            <p>
-              {busy
-                ? "处理中，可刷新后查询原任务。"
-                : "请求尚未归档，请查询原任务；不要重复提交。"}{" "}
-              {jobStatus?.status}
-            </p>
-            <div className="button-row">
+        <Suspense fallback={<p role="status">正在加载页面…</p>}>
+          {budgetGate && (
+            <section
+              className="utility-panel"
+              role="region"
+              aria-label="费用预检提醒"
+            >
+              <h3>费用预检提醒</h3>
+              <p>
+                已知费用 {budgetGate.estimate.spent.toFixed(4)}{" "}
+                {budgetGate.estimate.currency}；本次预留{" "}
+                {budgetGate.estimate.estimate == null
+                  ? "未知"
+                  : budgetGate.estimate.estimate.toFixed(4)}
+                ；预算 {budgetGate.estimate.limit}。
+              </p>
+              <p>{budgetGate.estimate.explanation}</p>
+              {budgetGate.estimate.unknown && (
+                <p>缺少完整用量或模型费率，无法确认剩余预算。</p>
+              )}
+              <ul>
+                {budgetGate.estimate.calls.map((c, i) => (
+                  <li key={i}>
+                    {c.role} · {c.model} · {c.endpoint}
+                  </li>
+                ))}
+              </ul>
               <button
+                type="button"
                 className="secondary"
+                disabled={Boolean(busy) || !consent}
                 onClick={() =>
-                  api(`/jobs/${workspace.pending.id}/cancel`, {
-                    method: "POST",
-                    body: {},
+                  run(budgetGate.pending.operation, async () => {
+                    const p = budgetGate.pending;
+                    setBudgetGate(null);
+                    await sendJob({ ...p, budgetOverride: true });
+                    setPage(
+                      ["prepare", "analyze", "equivalent"].includes(p.operation)
+                        ? "interview"
+                        : "workspace",
+                    );
                   })
-                    .then(() => notify("已请求取消，已产生费用不一定能撤销"))
-                    .catch((e) => setError(e.message))
                 }
               >
-                取消请求
+                确认本次继续，可能超出预算
               </button>
-              {!busy && (
-                <>
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      run(workspace.pending.operation, async () => {
-                        const p = workspace.pending;
-                        const result = await pollJob(p.id, setJobStatus);
-                        setWorkspace((w) => applyJobResult(w, p, result));
-                      })
-                    }
-                  >
-                    查询原任务
-                  </button>
-                  <button
-                    className="text-button"
-                    onClick={async () => {
-                      try {
-                        const job = await api(`/jobs/${workspace.pending.id}`);
-                        if (["running", "queued"].includes(job.status))
-                          throw new Error("任务仍在运行，请等待或取消");
-                        if (job.status === "succeeded") {
-                          setWorkspace((w) =>
-                            applyJobResult(w, w.pending, job.result),
-                          );
-                          return;
-                        }
-                        setWorkspace((w) => ({ ...w, pending: null }));
-                      } catch (e) {
-                        if (e.status === 404)
-                          setWorkspace((w) => ({ ...w, pending: null }));
-                        else setError(e.message);
-                      }
-                    }}
-                  >
-                    归档已结束请求
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-        {page === "data" && (
-          <DataCenter
-            workspace={workspace}
-            setWorkspace={setWorkspace}
-            replace={replace}
-            persist={persist}
-            openSession={openSession}
-            openReport={openReport}
-          />
-        )}
-        {page === "workspace" && (
-          <Workspace
-            draft={workspace.draft}
-            extractResume={extractResume}
-            changeResumeReview={(resumeReview) => {
-              setWorkspace((w) => ({
-                ...w,
-                preparation: null,
-                draft: { ...w.draft, resumeReview },
-              }));
-              setConsent(false);
-            }}
-            ocr={ocr}
-            setOcr={setOcr}
-            redact={() => {
-              setWorkspace((w) => ({
-                ...w,
-                preparation: null,
-                draft: {
-                  ...w.draft,
-                  jd: redactPersonal(w.draft.jd),
-                  resume: redactPersonal(w.draft.resume),
-                  resumeReview: null,
-                  resumeDocument: null,
-                },
-              }));
-              setConsent(false);
-              notify(
-                "已替换手机号、邮箱和身份证号，请检查姓名、公司和自定义敏感信息后重新校对",
-              );
-            }}
-            update={(key, value) => {
-              setWorkspace((w) => ({
-                ...w,
-                preparation: null,
-                draft: { ...w.draft, [key]: value },
-              }));
-              setConsent(false);
-            }}
-            config={config}
-            start={startInterview}
-            preparation={workspace.preparation}
-            changePreparation={(edited) => {
-              setWorkspace((w) => ({
-                ...w,
-                preparation: { ...w.preparation, edited },
-              }));
-              setError("");
-            }}
-            confirmPreparation={confirmPreparation}
-            backToDraft={() => {
-              setWorkspace((w) => ({ ...w, preparation: null }));
-              setError("");
-            }}
-            source={setSource}
-            busy={busy}
-            error={error}
-            importFile={importFile}
-            consent={consent}
-            setConsent={setConsent}
-            configure={() => setModelOpen(true)}
-            session={session}
-            resume={() => navigate("interview")}
-            records={workspace.records}
-            openReport={openReport}
-          />
-        )}
-        {page === "interview" &&
-          (session ? (
-            <>
-              <label className="consent session-consent">
-                <input
-                  type="checkbox"
-                  checked={consent}
-                  onChange={(e) => setConsent(e.target.checked)}
-                />
-                我同意将本轮岗位、简历、问题与回答发送到已配置的模型服务。视频或录音不会上传。
-              </label>
-              <Interview
-                session={session}
-                question={question}
-                report={currentReport}
-                records={workspace.records}
-                busy={busy}
-                error={error}
-                changeAnswer={(draft) =>
-                  updateQuestion((q) => ({ ...q, draft }))
-                }
-                submit={submitAnswer}
-                choose={(i) => {
-                  if (!lock.current) {
-                    setWorkspace((w) => ({
-                      ...w,
-                      session: { ...w.session, current: i },
-                    }));
-                    setError("");
-                  }
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  setBudgetGate(null);
+                  setError("");
                 }}
-                follow={() =>
-                  updateQuestion((q) =>
-                    followQuestion(q, currentReport, session),
-                  )
-                }
-                skip={() =>
-                  updateQuestion((q) => ({ ...q, skipped: true, ready: false }))
-                }
-                confirmEquivalent={() =>
-                  setWorkspace((w) => ({
-                    ...w,
-                    session: {
-                      ...w.session,
-                      equivalence: {
-                        ...w.session.equivalence,
-                        confirmed: true,
-                      },
-                    },
-                  }))
-                }
-                finish={finish}
-                openReport={openReport}
-                source={setSource}
+              >
+                取消本次发送
+              </button>
+            </section>
+          )}
+          <header className="topbar">
+            <div>
+              <span className="eyebrow">
+                MY WORKSPACE / {page.toUpperCase()}
+              </span>
+              <h1>{NAV.find((n) => n[0] === page)[1]}</h1>
+            </div>
+            <button
+              className="model-button"
+              onClick={() => setModelOpen(true)}
+              disabled={Boolean(busy)}
+            >
+              <span
+                className={config?.testedAt ? "connected-dot" : "warning-dot"}
               />
-            </>
-          ) : (
-            <Empty
-              title="从一个目标岗位开始"
-              text="填写 JD 与简历，由模型为你准备问题。"
-              action={() => navigate("workspace")}
-              label="准备面试资料"
-            />
-          ))}
-        {page === "evidence" && (
-          <>
-            {(sessions.length > 0 || report) && (
-              <div className="report-navigation">
-                <div
-                  className="report-modes"
-                  role="group"
-                  aria-label="报告范围"
+              {config?.model || "连接模型"}
+              <SlidersHorizontal size={15} />
+            </button>
+          </header>
+          {storageError && (
+            <div className="error" role="alert">
+              {storageError}
+            </div>
+          )}
+          {error && (
+            <div
+              className="error global-error"
+              role="alert"
+              tabIndex={-1}
+              ref={errorSummary}
+            >
+              {error}
+            </div>
+          )}
+          {workspace.pending && (
+            <div className="utility-panel" role="status">
+              <b>请求 {workspace.pending.id}</b>
+              <p>
+                {busy
+                  ? "处理中，可刷新后查询原任务。"
+                  : "请求尚未归档，请查询原任务；不要重复提交。"}{" "}
+                {jobStatus?.status}
+              </p>
+              <div className="button-row">
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    api(`/jobs/${workspace.pending.id}/cancel`, {
+                      method: "POST",
+                      body: {},
+                    })
+                      .then(() => notify("已请求取消，已产生费用不一定能撤销"))
+                      .catch((e) => setError(e.message))
+                  }
                 >
-                  <button
-                    aria-pressed={reportView === "session"}
-                    onClick={() => setReportView("session")}
-                    disabled={!summarySession}
-                  >
-                    整场复盘
-                  </button>
-                  <button
-                    aria-pressed={reportView === "answer"}
-                    onClick={() => setReportView("answer")}
-                    disabled={!report}
-                  >
-                    单题证据
-                  </button>
-                </div>
-                {reportView === "session" && summarySession && (
-                  <label>
-                    面试记录
-                    <select
-                      value={summarySession.id}
-                      onChange={(e) => setSummarySessionId(e.target.value)}
+                  取消请求
+                </button>
+                {!busy && (
+                  <>
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        run(workspace.pending.operation, async () => {
+                          const p = workspace.pending;
+                          const result = await pollJob(p.id, setJobStatus);
+                          setWorkspace((w) => applyJobResult(w, p, result));
+                        })
+                      }
                     >
-                      {sessions.map((s, i) => (
-                        <option value={s.id} key={s.id}>
-                          {s.title} ·{" "}
-                          {s.createdAt
-                            ? new Date(s.createdAt).toLocaleString("zh-CN")
-                            : `记录 ${i + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {reportView === "answer" && report && (
-                  <label>
-                    回答记录
-                    <select
-                      value={report.id}
-                      onChange={(e) => openReport(e.target.value)}
+                      查询原任务
+                    </button>
+                    <button
+                      className="text-button"
+                      onClick={async () => {
+                        try {
+                          const job = await api(
+                            `/jobs/${workspace.pending.id}`,
+                          );
+                          if (["running", "queued"].includes(job.status))
+                            throw new Error("任务仍在运行，请等待或取消");
+                          if (job.status === "succeeded") {
+                            setWorkspace((w) =>
+                              applyJobResult(w, w.pending, job.result),
+                            );
+                            return;
+                          }
+                          setWorkspace((w) => ({ ...w, pending: null }));
+                        } catch (e) {
+                          if (e.status === 404)
+                            setWorkspace((w) => ({ ...w, pending: null }));
+                          else setError(e.message);
+                        }
+                      }}
                     >
-                      {workspace.records.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.input.question.slice(0, 60)} ·{" "}
-                          {new Date(r.createdAt).toLocaleString("zh-CN")}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                      归档已结束请求
+                    </button>
+                  </>
                 )}
               </div>
-            )}
-            {reportView === "session" && summarySession ? (
-              <div className="page">
-                <SessionReport
-                  session={summarySession}
+            </div>
+          )}
+          {page === "data" && (
+            <DataCenter
+              workspace={workspace}
+              setWorkspace={setWorkspace}
+              replace={replace}
+              persist={persist}
+              openSession={openSession}
+              openReport={openReport}
+            />
+          )}
+          {page === "workspace" && !busy && (
+            <PersonalLibrary
+              workspace={workspace}
+              setWorkspace={setWorkspace}
+              onSelect={() => setConsent(false)}
+              practice={practice}
+            />
+          )}
+          {["workspace", "plan"].includes(page) && !busy && (
+            <MasteryBoard
+              records={workspace.records}
+              done={workspace.done}
+              practice={practice}
+              openReport={openReport}
+            />
+          )}
+          {page === "workspace" && (
+            <Workspace
+              draft={workspace.draft}
+              extractResume={extractResume}
+              changeResumeReview={(resumeReview) => {
+                setWorkspace((w) => ({
+                  ...w,
+                  preparation: null,
+                  draft: { ...w.draft, resumeReview },
+                }));
+                setConsent(false);
+              }}
+              ocr={ocr}
+              setOcr={setOcr}
+              redact={() => {
+                setWorkspace((w) => ({
+                  ...w,
+                  preparation: null,
+                  draft: {
+                    ...w.draft,
+                    jd: redactPersonal(w.draft.jd),
+                    resume: redactPersonal(w.draft.resume),
+                    resumeReview: null,
+                    resumeDocument: null,
+                  },
+                }));
+                setConsent(false);
+                notify(
+                  "已替换手机号、邮箱和身份证号，请检查姓名、公司和自定义敏感信息后重新校对",
+                );
+              }}
+              update={(key, value) => {
+                setWorkspace((w) => ({
+                  ...w,
+                  preparation: null,
+                  draft: { ...w.draft, [key]: value },
+                }));
+                setConsent(false);
+              }}
+              config={config}
+              start={startInterview}
+              preparation={workspace.preparation}
+              changePreparation={(edited) => {
+                setWorkspace((w) => ({
+                  ...w,
+                  preparation: { ...w.preparation, edited },
+                }));
+                setError("");
+              }}
+              confirmPreparation={confirmPreparation}
+              backToDraft={() => {
+                setWorkspace((w) => ({ ...w, preparation: null }));
+                setError("");
+              }}
+              source={setSource}
+              busy={busy}
+              error={error}
+              importFile={importFile}
+              consent={consent}
+              setConsent={setConsent}
+              configure={() => setModelOpen(true)}
+              session={session}
+              resume={() => navigate("interview")}
+              records={workspace.records}
+              openReport={openReport}
+            />
+          )}
+          {page === "interview" &&
+            (session ? (
+              <>
+                <label className="consent session-consent">
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={(e) => setConsent(e.target.checked)}
+                  />
+                  我同意将本轮岗位、简历、问题与确认文字发送到已配置的评分服务。浏览器转写可能另行发送音频，会在录制前说明。
+                </label>
+                <Interview
+                  session={session}
+                  question={question}
+                  report={currentReport}
+                  records={workspace.records}
+                  busy={busy}
+                  error={error}
+                  changeAnswer={(draft, answerCapture = null) =>
+                    updateQuestion((q) => ({ ...q, draft, answerCapture }))
+                  }
+                  submit={submitAnswer}
+                  choose={(i) => {
+                    if (!lock.current) {
+                      setWorkspace((w) => ({
+                        ...w,
+                        session: { ...w.session, current: i },
+                      }));
+                      setError("");
+                    }
+                  }}
+                  follow={() =>
+                    updateQuestion((q) =>
+                      followQuestion(q, currentReport, session),
+                    )
+                  }
+                  skip={() =>
+                    updateQuestion((q) => ({
+                      ...q,
+                      skipped: true,
+                      ready: false,
+                    }))
+                  }
+                  confirmEquivalent={() =>
+                    setWorkspace((w) => ({
+                      ...w,
+                      session: {
+                        ...w.session,
+                        equivalence: {
+                          ...w.session.equivalence,
+                          confirmed: true,
+                        },
+                      },
+                    }))
+                  }
+                  finish={finish}
+                  openReport={openReport}
+                  source={setSource}
+                />
+              </>
+            ) : (
+              <Empty
+                title="从一个目标岗位开始"
+                text="填写 JD 与简历，由模型为你准备问题。"
+                action={() => navigate("workspace")}
+                label="准备面试资料"
+              />
+            ))}
+          {page === "evidence" && (
+            <>
+              {(sessions.length > 0 || report) && (
+                <div className="report-navigation">
+                  <div
+                    className="report-modes"
+                    role="group"
+                    aria-label="报告范围"
+                  >
+                    <button
+                      aria-pressed={reportView === "session"}
+                      onClick={() => setReportView("session")}
+                      disabled={!summarySession}
+                    >
+                      整场复盘
+                    </button>
+                    <button
+                      aria-pressed={reportView === "answer"}
+                      onClick={() => setReportView("answer")}
+                      disabled={!report}
+                    >
+                      单题证据
+                    </button>
+                  </div>
+                  {reportView === "session" && summarySession && (
+                    <label>
+                      面试记录
+                      <select
+                        value={summarySession.id}
+                        onChange={(e) => setSummarySessionId(e.target.value)}
+                      >
+                        {sessions.map((s, i) => (
+                          <option value={s.id} key={s.id}>
+                            {s.title} ·{" "}
+                            {s.createdAt
+                              ? new Date(s.createdAt).toLocaleString("zh-CN")
+                              : `记录 ${i + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {reportView === "answer" && report && (
+                    <label>
+                      回答记录
+                      <select
+                        value={report.id}
+                        onChange={(e) => openReport(e.target.value)}
+                      >
+                        {workspace.records.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.input.question.slice(0, 60)} ·{" "}
+                            {new Date(r.createdAt).toLocaleString("zh-CN")}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              )}
+              {reportView === "session" && summarySession ? (
+                <div className="page">
+                  <SessionReport
+                    session={summarySession}
+                    records={workspace.records}
+                    openReport={openReport}
+                    source={setSource}
+                    practice={practice}
+                    done={workspace.done}
+                    toggle={toggleTask}
+                  />
+                </div>
+              ) : report ? (
+                <Report
+                  favorite={(workspace.materials || []).some(
+                    (m) => m.kind === "question" && m.reportId === report.id,
+                  )}
+                  toggleFavorite={() =>
+                    setWorkspace((w) => {
+                      const list = w.materials || [],
+                        exists = list.some(
+                          (m) =>
+                            m.kind === "question" && m.reportId === report.id,
+                        );
+                      return {
+                        ...w,
+                        materials: exists
+                          ? list.filter(
+                              (m) =>
+                                !(
+                                  m.kind === "question" &&
+                                  m.reportId === report.id
+                                ),
+                            )
+                          : list.length >= 300
+                            ? list
+                            : [
+                                {
+                                  id: crypto.randomUUID(),
+                                  kind: "question",
+                                  label: report.input.question.slice(0, 100),
+                                  question: report.input.question,
+                                  reportId: report.id,
+                                  createdAt: new Date().toISOString(),
+                                },
+                                ...list,
+                              ],
+                      };
+                    })
+                  }
+                  report={report}
                   records={workspace.records}
                   openReport={openReport}
                   source={setSource}
+                  goPlan={() => navigate("plan")}
                   practice={practice}
-                  done={workspace.done}
-                  toggle={toggleTask}
+                  goSession={() => openSession(report.sessionId)}
                 />
-              </div>
-            ) : report ? (
-              <Report
+              ) : (
+                <Empty
+                  title="每一份报告，从回答开始"
+                  text="模型完成分析后，五维评分及其原文依据会展示在这里。"
+                  action={() => navigate(session ? "interview" : "workspace")}
+                  label="开始回答"
+                />
+              )}
+            </>
+          )}
+          {page === "plan" &&
+            (report ? (
+              <Plan
                 report={report}
                 records={workspace.records}
-                openReport={openReport}
-                source={setSource}
-                goPlan={() => navigate("plan")}
+                done={workspace.done}
+                toggle={toggleTask}
                 practice={practice}
+                openReport={openReport}
                 goSession={() => openSession(report.sessionId)}
               />
             ) : (
               <Empty
-                title="每一份报告，从回答开始"
-                text="模型完成分析后，五维评分及其原文依据会展示在这里。"
+                title="下一步训练，要有依据"
+                text="先完成至少一次回答，我们会把证据缺口变成练习题。"
                 action={() => navigate(session ? "interview" : "workspace")}
-                label="开始回答"
+                label="去回答"
               />
-            )}
-          </>
-        )}
-        {page === "plan" &&
-          (report ? (
-            <Plan
-              report={report}
-              records={workspace.records}
-              done={workspace.done}
-              toggle={toggleTask}
-              practice={practice}
-              openReport={openReport}
-              goSession={() => openSession(report.sessionId)}
-            />
-          ) : (
-            <Empty
-              title="下一步训练，要有依据"
-              text="先完成至少一次回答，我们会把证据缺口变成练习题。"
-              action={() => navigate(session ? "interview" : "workspace")}
-              label="去回答"
-            />
-          ))}
+            ))}
+        </Suspense>
       </main>
       {modelOpen && (
         <ModelSettings
@@ -862,4 +1135,8 @@ function Empty({ title, text, action, label }) {
     </div>
   );
 }
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <AccessGate>
+    <App />
+  </AccessGate>,
+);

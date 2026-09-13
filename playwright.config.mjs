@@ -16,8 +16,14 @@ export default defineConfig({
     ...(channel ? { channel } : {}),
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    launchOptions: { args: ["--use-fake-device-for-media-stream"] },
   },
   webServer: [
+    {
+      command: "node tests/production-browser-server.mjs",
+      url: "http://127.0.0.1:8809/api/ping",
+      reuseExistingServer: false,
+    },
     {
       command: "node tests/browser-server.mjs",
       url: "http://127.0.0.1:8799/api/health",

@@ -2053,9 +2053,52 @@ main {
   display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
-  object-fit: cover;
+  object-fit: contain;
   background: #182018;
   border-radius: 6px;
+}
+.access-page {
+  max-width: 600px;
+  padding-top: 12vh;
+}
+.access-page input {
+  display: block;
+  width: 100%;
+  margin: 12px 0 24px;
+  padding: 12px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--paper);
+}
+.access-logout {
+  position: fixed;
+  bottom: 16px;
+  left: 18px;
+  z-index: 4;
+  background: var(--panel);
+}
+.media-devices label {
+  display: grid;
+  gap: 8px;
+}
+.media-devices select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #68765c;
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.answer-card .secondary {
+  color: var(--ink);
+}
+.answer-card .secondary:hover {
+  background: #dde6d2;
+}
+.answer-card .text-button {
+  color: #365421;
 }
 .device-check {
   font-size: 12px !important;

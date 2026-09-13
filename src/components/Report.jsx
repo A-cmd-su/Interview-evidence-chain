@@ -5,6 +5,8 @@ import { ArrowRight, Search, Download } from "lucide-react";
 import { compareReports } from "../sessionSummary";
 import { isReviewedScore } from "../../shared/analyze.mjs";
 import { difficultyLabel } from "../../shared/difficulty.mjs";
+import { masteryStatus } from "../../shared/mastery.mjs";
+import { ReportRecap } from "./ReportRecap";
 const REVIEW_STATUS = {
   pending_review: "待语义复核，不发布分数",
   insufficient_evidence: "引用不完整，不发布分数",
@@ -19,6 +21,8 @@ export function Report({
   goPlan,
   practice,
   goSession,
+  favorite,
+  toggleFavorite,
 }) {
   const turns = [
     ...(report.input.history || []),
@@ -39,6 +43,11 @@ export function Report({
   }
   return (
     <div className="page">
+      {toggleFavorite && (
+        <button className="text-button" onClick={toggleFavorite}>
+          {favorite ? "取消收藏此题" : "收藏此题到资料库"}
+        </button>
+      )}
       <div className="report-header">
         <div>
           <span className="number-label">03 / EVERY SCORE TELLS A STORY</span>
@@ -59,6 +68,7 @@ export function Report({
           <span>{legacy ? "历史引用覆盖" : "语义复核通过维度"}</span>
         </div>
       </div>
+      <ReportRecap report={report} goPlan={goPlan} />
       {report.difficultyPolicy && (
         <details className="difficulty-policy">
           <summary>
@@ -75,7 +85,7 @@ export function Report({
           ? "历史初评：仅校验原文引用，未经语义复核。"
           : report.semanticReview.status === "not_required"
             ? "本轮没有引用完整的可评分维度，未发起语义复核。"
-            : `已复核 ${report.semanticReview.reviewedCount} 个维度，通过 ${report.semanticReview.supportedCount} 个。初评与复核使用同一模型的两次独立请求，不代表人工核实或经历真实。`}
+            : `已复核 ${report.semanticReview.reviewedCount} 个维度，通过 ${report.semanticReview.supportedCount} 个。${report.semanticReview.crossModel ? "初评与复核使用不同模型配置" : "初评与复核使用同一模型的两次独立请求"}，不代表人工核实或经历真实。`}
       </p>
       {comparison && (
         <div className="comparison">
@@ -108,6 +118,28 @@ export function Report({
         briefing={report.input.briefing}
         practice={Boolean(report.practiceKind)}
       />
+      {report.input.answerCapture && (
+        <details className="utility-panel">
+          <summary>
+            转写校对记录 ·{" "}
+            {report.input.answerCapture.kind === "video" ? "视频" : "语音"}
+          </summary>
+          <p>
+            人工确认时间：
+            {new Date(report.input.answerCapture.confirmedAt).toLocaleString(
+              "zh-CN",
+            )}
+            。录制媒体未存入报告；评分只使用确认文字。
+          </p>
+          <p>浏览器原始转写（不作为评分依据）：</p>
+          <blockquote>
+            {report.input.answerCapture.rawTranscript ||
+              "未产生自动转写，用户手工填写"}
+          </blockquote>
+          <p>确认后的回答：</p>
+          <blockquote>{report.input.answerCapture.confirmedText}</blockquote>
+        </details>
+      )}
       <div className="report-layout">
         <section className="score-list">
           {report.scores.map((row) => (
@@ -379,6 +411,25 @@ export function Plan({
                 {String(i + 1).padStart(2, "0")} · {t.gap}
               </span>
               <h3>{t.title}</h3>
+              <p>
+                {
+                  masteryStatus(
+                    report,
+                    records,
+                    t,
+                    Boolean(done[report.id + ":" + t.id]),
+                  ).label
+                }{" "}
+                · 下次复测{" "}
+                {new Date(
+                  masteryStatus(
+                    report,
+                    records,
+                    t,
+                    Boolean(done[report.id + ":" + t.id]),
+                  ).nextDue,
+                ).toLocaleDateString("zh-CN")}
+              </p>
               <p>{t.prompt}</p>
               <div className="criterion">
                 <b>完成标准</b>
@@ -396,6 +447,12 @@ export function Plan({
               <div className="task-controls">
                 <button className="primary" onClick={() => practice(t, report)}>
                   练习这道题 <ArrowRight size={16} />
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => practice(t, report, true)}
+                >
+                  换场景验证掌握
                 </button>
                 <label className="check">
                   <input

@@ -52,7 +52,7 @@ export const INTERVIEW_MODES = [
   },
   {
     id: "voice",
-    label: "语言面试",
+    label: "语音面试",
     guidance: "使用浏览器麦克风录音并校对转写，再提交文字证据。",
   },
   {
@@ -85,6 +85,18 @@ export const setupLabel = (choices, id) =>
   choices.find((item) => item.id === id)?.label || "未记录";
 export const setupChoice = (choices, id) =>
   choices.find((item) => item.id === id) || null;
+export function languageInstruction(input) {
+  const settings =
+    input.briefing?.languageSettings || input.languageSettings || {};
+  const lang = setupChoice(
+    INTERVIEW_LANGUAGES,
+    settings.questionLanguage ||
+      input.briefing?.language ||
+      input.language ||
+      "zh-CN",
+  );
+  return `目标语言=${lang.label}。${lang.instruction} 回答语言=${settings.answerLanguage || input.language || lang.id}；简历语言=${settings.resumeLanguage || "自动识别"}；练习语言水平=${settings.targetLevel || "general"}（仅练习目标，不是认证）。允许提问与回答语言不同，不将语言切换当作专业能力不足。JSON键、维度名称和缺口枚举保持约定中文；所有引用保持原文，不翻译引用。不依据口音、情绪、性格或外貌评分。仅从确认文字判断内容和表达结构。`;
+}
 export function briefingInstruction(briefing) {
   if (!briefing) return "";
   const mode = setupChoice(INTERVIEW_MODES, briefing.interviewMode || "text");

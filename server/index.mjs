@@ -3,9 +3,15 @@ import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { createAccess } from "./access.mjs";
+import { credential } from "./credentials.mjs";
+import { createBackups } from "./backups.mjs";
+import { serveStatic, productionHeaders } from "./static.mjs";
 import { createStore } from "./store.mjs";
 import { createJobs } from "./jobs.mjs";
 import { featureRoutes } from "./features.mjs";
+import { createFullBackupService } from "./fullBackup.mjs";
 import { configureProxy } from "./network.mjs";
 import { testStructure } from "./diagnostics.mjs";
 import { DIFFICULTY_VERSION } from "../shared/difficulty.mjs";
@@ -66,7 +72,8 @@ async function readBody(req) {
     if (
       bytes >
       (req.url?.startsWith("/api/workspace") ||
-      req.url?.startsWith("/api/backup")
+      req.url?.startsWith("/api/backup") ||
+      req.url === "/api/asr/jobs"
         ? 25 * 1024 * 1024
         : 600000)
     )
@@ -85,14 +92,145 @@ function publicConfig(s) {
   return {
     ...config,
     hasKey: Boolean(apiKey),
+    profileId: s.persistentConfig?.profileId || null,
+    persistent: Boolean(s.persistentConfig),
     testedAt: s.testHash === hash(s.config) ? s.testedAt : null,
     structureTestedAt:
       s.structureHash === structureHash(s.config) ? s.structureTestedAt : null,
   };
 }
 export function createApp(options = {}) {
+  if (
+    !options.publicOrigin &&
+    (options.allowedHosts?.some(
+      (h) => !["localhost", "127.0.0.1"].includes(h),
+    ) ||
+      options.allowedOrigins?.some(
+        (o) => !["localhost", "127.0.0.1"].includes(new URL(o).hostname),
+      ))
+  )
+    throw new Error("远程域名请使用 PUBLIC_ORIGIN 配置 HTTPS，并启用个人密码");
+  const access = createAccess(options.passwordRecord, {
+    secure: Boolean(options.publicOrigin?.startsWith("https:")),
+  });
+  if (options.publicOrigin && !access.required)
+    throw new Error("远程访问需要先设置个人密码：npm run set-password");
   const store = createStore(options.dbPath || ":memory:");
+  const persistentConfigEnabled =
+    options.dbPath && options.dbPath !== ":memory:";
+  const persistentProfile = (s) => {
+    const active = store.get("activeModel").value;
+    const profile =
+      active?.profileId &&
+      store.profiles().find((p) => p.id === active.profileId);
+    if (!profile) return null;
+    return {
+      ...profile.config,
+      hasKey: Boolean(profile.hasStoredKey),
+      profileId: profile.id,
+      testedAt: profile.testedAt || null,
+      structureTestedAt: profile.structureTestedAt || null,
+    };
+  };
+  const hydratePersistentConfig = async (s) => {
+    if (s.config || s.persistentConfigChecked) return;
+    s.persistentConfigChecked = true;
+    const safe = persistentProfile(s);
+    s.persistentConfig = safe;
+    if (!safe) return;
+    const profile = store.profiles().find((p) => p.id === safe.profileId);
+    const localModel = (() => {
+      try {
+        return ["127.0.0.1", "localhost", "[::1]"].includes(
+          new URL(profile?.config?.baseUrl || profile?.config?.endpoint)
+            .hostname,
+        );
+      } catch {
+        return false;
+      }
+    })();
+    if (!profile?.hasStoredKey && !localModel) return;
+    try {
+      const key = profile.hasStoredKey
+        ? (await credential("get", profile.id)).secret
+        : "";
+      if (key || localModel) {
+        s.config = validateConfig({
+          ...profile.config,
+          baseUrl: profile.config.endpoint,
+          apiKey: key,
+        });
+        s.profileKeys ||= new Map();
+        s.profileKeys.set(profile.id, key);
+        s.testedAt = profile.testedAt;
+        s.testHash = profile.testedAt ? hash(s.config) : null;
+      }
+    } catch {
+      s.persistentConfig = {
+        ...safe,
+        hasKey: false,
+        testedAt: null,
+        structureTestedAt: null,
+      };
+    }
+  };
+  const persistModel = async (s, config) => {
+    if (!persistentConfigEnabled) return null;
+    const safe = (({ apiKey, ...value }) => value)(config);
+    const same = store
+      .profiles()
+      .find(
+        (p) =>
+          p.config.endpoint === config.endpoint &&
+          p.config.model === config.model &&
+          p.config.protocol === config.protocol,
+      );
+    const id = same?.id || crypto.randomUUID();
+    if (config.apiKey && process.platform === "win32")
+      await credential("set", id, config.apiKey);
+    const profile = {
+      id,
+      name: same?.name || `默认模型 · ${config.model}`,
+      config: safe,
+      hasStoredKey: Boolean(config.apiKey),
+      testedAt: s.testHash === hash(config) ? s.testedAt : null,
+      structureTestedAt:
+        s.structureHash === structureHash(config) ? s.structureTestedAt : null,
+      createdAt: same?.createdAt || new Date().toISOString(),
+    };
+    store.profile(id, profile);
+    store.put("activeModel", {
+      profileId: id,
+      updatedAt: new Date().toISOString(),
+    });
+    s.profileKeys ||= new Map();
+    if (config.apiKey) s.profileKeys.set(id, config.apiKey);
+    s.persistentConfig = {
+      ...safe,
+      hasKey: Boolean(config.apiKey),
+      profileId: id,
+      testedAt: profile.testedAt,
+      structureTestedAt: profile.structureTestedAt,
+    };
+    return profile;
+  };
+  const fullBackups = createFullBackupService({
+    dataDir: options.dataDir,
+    directory: options.fullBackupDir,
+    password: options.fullBackupPassword,
+  });
   const jobs = createJobs(store);
+  const backups = createBackups(store, {
+    directory: options.backupDir,
+    keep: options.backupKeep || 30,
+  });
+  const backupTimer = setInterval(() => {
+    if (!jobs.busy) {
+      backups.run().catch(() => {});
+      fullBackups.run().catch(() => {});
+    }
+  }, 60000);
+  backupTimer.unref();
   const features = featureRoutes({
     store,
     jobs,
@@ -100,6 +238,7 @@ export function createApp(options = {}) {
     send,
     options,
     publicConfig,
+    backups,
   });
   store.purge(store.get("preferences").value?.retentionDays ?? 90);
   const cleanup = setInterval(() => {
@@ -110,15 +249,15 @@ export function createApp(options = {}) {
   const sessions = new Map();
   const origins = new Set(ORIGINS);
   for (const origin of options.allowedOrigins || []) origins.add(origin);
+  if (options.publicOrigin) origins.add(new URL(options.publicOrigin).origin);
   const allowedHosts = new Set([
     "localhost",
     "127.0.0.1",
     ...(options.allowedHosts || []),
+    ...(options.publicOrigin ? [new URL(options.publicOrigin).hostname] : []),
   ]);
   const serveWeb = options.serveWeb === true;
   const webRoot = resolve(options.webRoot || "dist");
-  const webRootPrefix =
-    webRoot.endsWith("\\") || webRoot.endsWith("/") ? webRoot : webRoot + "/";
   for (const port of [options.webPort, options.previewPort].filter(
     (port) => port !== undefined,
   )) {
@@ -130,59 +269,72 @@ export function createApp(options = {}) {
   const server = http.createServer(async (req, res) => {
     const requestId = crypto.randomUUID();
     res.setHeader("x-request-id", requestId);
+    for (const [key, value] of Object.entries(productionHeaders))
+      res.setHeader(key, value);
     const host = req.headers.host || "";
     const hostname = host.replace(/:\d+$/, "");
     if (!allowedHosts.has(hostname))
       return send(res, 403, { error: "Host 不被允许" });
     if (
-      (req.headers.origin && !origins.has(req.headers.origin)) ||
+      (req.headers.origin &&
+        !origins.has(req.headers.origin) &&
+        !(
+          serveWeb &&
+          !options.publicOrigin &&
+          ["localhost", "127.0.0.1"].includes(hostname) &&
+          req.headers.origin === `http://${host}`
+        )) ||
       req.headers["sec-fetch-site"] === "cross-site"
     )
       return send(res, 403, { error: "拒绝跨站访问本机 API" });
     try {
       const path = new URL(req.url, "http://localhost").pathname;
-      if (serveWeb && req.method === "GET" && !path.startsWith("/api/")) {
-        const relative = path === "/" ? "index.html" : path.slice(1);
-        const file = resolve(webRoot, relative);
-        if (
-          file === resolve(webRoot, "index.html") ||
-          file.startsWith(webRootPrefix)
-        ) {
-          try {
-            const body = await readFile(file);
-            const type = file.endsWith(".html")
-              ? "text/html; charset=utf-8"
-              : file.endsWith(".js") || file.endsWith(".mjs")
-                ? "text/javascript; charset=utf-8"
-                : file.endsWith(".css")
-                  ? "text/css; charset=utf-8"
-                  : file.endsWith(".svg")
-                    ? "image/svg+xml"
-                    : file.endsWith(".wasm")
-                      ? "application/wasm"
-                      : "application/octet-stream";
-            res.writeHead(200, {
-              "content-type": type,
-              "cache-control": file.endsWith("index.html")
-                ? "no-cache"
-                : "public, max-age=31536000, immutable",
-              "x-content-type-options": "nosniff",
-              "content-security-policy":
-                "default-src 'self'; connect-src 'self' https:; media-src 'self' blob:; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' blob:",
-            });
-            return res.end(body);
-          } catch (error) {
-            if (error.code !== "ENOENT") throw error;
-          }
-        }
-        const index = await readFile(resolve(webRoot, "index.html"));
-        res.writeHead(200, {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-cache",
-          "x-content-type-options": "nosniff",
+      if (path === "/api/ping" && req.method === "GET")
+        return send(res, 200, { ok: true });
+      if (serveWeb && !path.startsWith("/api/") && path !== "/api")
+        return await serveStatic(req, res, webRoot, path);
+      if (path === "/api/auth" && req.method === "GET")
+        return send(res, 200, {
+          required: access.required,
+          authenticated: access.authorized(req),
         });
-        return res.end(index);
+      if (path === "/api/auth/login" && req.method === "POST") {
+        await access.login(req, res, await readBody(req));
+        return send(res, 200, { ok: true });
       }
+      if (!access.authorized(req))
+        return send(res, 401, {
+          error: "请先登录个人工作区",
+          code: "ACCESS_REQUIRED",
+        });
+      if (path === "/api/auth/logout" && req.method === "POST") {
+        const id = (req.headers.cookie || "").match(
+          /(?:^|;\s*)evidence_sid=([\w-]+)/,
+        )?.[1];
+        if (sessions.get(id)?.busy || jobs.busy)
+          return send(res, 409, { error: "请等待或取消模型任务再退出" });
+        sessions.delete(id);
+        access.logout(req, res);
+        return send(res, 200, { ok: true });
+      }
+      if (path === "/api/full-backups") {
+        if (req.method === "GET")
+          return send(res, 200, await fullBackups.status());
+        if (req.method === "POST") {
+          if (jobs.busy) throw new InputError("请等待当前模型任务结束");
+          return send(res, 200, await fullBackups.run(true));
+        }
+      }
+      if (path === "/api/backups") {
+        if (req.method === "GET") return send(res, 200, await backups.status());
+        if (req.method === "POST")
+          return send(res, 200, await backups.run(true));
+        if (req.method === "DELETE")
+          return send(res, 200, await backups.clear());
+      }
+      const backupName = path.match(/^\/api\/backups\/([^/]+)$/)?.[1];
+      if (backupName && req.method === "GET")
+        return send(res, 200, await backups.read(backupName));
       const now = Date.now();
       for (const [id, session] of sessions)
         if (session.expires < now && !session.busy) sessions.delete(id);
@@ -203,10 +355,11 @@ export function createApp(options = {}) {
         });
         res.setHeader(
           "set-cookie",
-          `evidence_sid=${sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age=7200`,
+          `evidence_sid=${sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age=7200${options.publicOrigin?.startsWith("https:") ? "; Secure" : ""}`,
         );
       }
       const s = sessions.get(sid);
+      await hydratePersistentConfig(s);
       const requestOptions = {
         ...options,
         onUsage: (u) =>
@@ -218,10 +371,18 @@ export function createApp(options = {}) {
           }),
       };
       if (await features(req, res, s, path)) return;
+      if (
+        path.startsWith("/api/interview/") &&
+        ((store.get("budget").value?.limit || 0) > 0 ||
+          Object.values(store.get("routing").value || {}).some(Boolean))
+      )
+        return send(res, 409, {
+          error: "启用模型分工或预算后，请使用可恢复任务接口 /api/jobs",
+        });
       if (req.method === "GET" && path === "/api/health")
         return send(res, 200, {
           ok: true,
-          config: publicConfig(s),
+          config: publicConfig(s) || s.persistentConfig || null,
           schemaVersion: SCHEMA_VERSION,
         });
       if (req.method === "GET" && path === "/api/models")
@@ -232,7 +393,7 @@ export function createApp(options = {}) {
         sessions.delete(sid);
         res.setHeader(
           "set-cookie",
-          "evidence_sid=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+          `evidence_sid=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${options.publicOrigin?.startsWith("https:") ? "; Secure" : ""}`,
         );
         return send(res, 200, { ok: true });
       }
@@ -325,6 +486,7 @@ export function createApp(options = {}) {
         s.config = config;
         if (s.testHash !== hash(config)) s.testedAt = null;
         s.cache.clear();
+        if (path === "/api/models") await persistModel(s, config);
         return send(res, 200, { config: publicConfig(s) });
       }
       const input = path.endsWith("/briefing")
@@ -392,8 +554,11 @@ export function createApp(options = {}) {
       });
     }
   });
-  server.on("close", () => {
+  server.on("close", async () => {
     clearInterval(cleanup);
+    clearInterval(backupTimer);
+    await backups.close();
+    await fullBackups.close();
     jobs.close();
     if (!jobs.busy) store.close();
   });
@@ -406,13 +571,40 @@ if (
   configureProxy();
   const port = Number(process.env.PORT || process.env.API_PORT || 8787);
   const host = process.env.HOST || "127.0.0.1";
+  const dataDir = resolve(process.env.DATA_DIR || "data");
+  const authFile = resolve(
+    process.env.AUTH_FILE || resolve(dataDir, "access.json"),
+  );
+  const passwordRecord = existsSync(authFile)
+    ? JSON.parse(await readFile(authFile, "utf8"))
+    : null;
+  const publicOrigin = process.env.PUBLIC_ORIGIN || undefined;
+  if (
+    publicOrigin &&
+    (new URL(publicOrigin).protocol !== "https:" ||
+      new URL(publicOrigin).origin !== publicOrigin)
+  )
+    throw new Error("PUBLIC_ORIGIN 请填写不带路径的 HTTPS 地址");
+  if (
+    !["127.0.0.1", "localhost", "::1"].includes(host) &&
+    (!passwordRecord || !publicOrigin)
+  )
+    throw new Error(
+      "对外监听前请设置个人密码及 PUBLIC_ORIGIN，并通过 HTTPS 反向代理访问",
+    );
   const list = (value) =>
     String(value || "")
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
   createApp({
-    dbPath: resolve(process.env.DATA_DIR || "data", "evidence.sqlite"),
+    dbPath: resolve(dataDir, "evidence.sqlite"),
+    dataDir,
+    fullBackupDir: process.env.FULL_BACKUP_DIR || undefined,
+    fullBackupPassword: process.env.EVIDENCE_BACKUP_PASSPHRASE || undefined,
+    passwordRecord,
+    publicOrigin,
+    backupDir: resolve(process.env.BACKUP_DIR || resolve(dataDir, "backups")),
     webPort: Number(process.env.WEB_PORT || 5173),
     previewPort: Number(process.env.PREVIEW_PORT || 4173),
     allowedHosts: list(process.env.ALLOWED_HOSTS),

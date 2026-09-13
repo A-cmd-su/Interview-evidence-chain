@@ -9,6 +9,8 @@ import {
   setupLabel,
 } from "../../shared/interviewSetup.mjs";
 import { difficultyLabel } from "../../shared/difficulty.mjs";
+import { MediaInput } from "./MediaInput";
+import { LanguageSettings } from "./LanguageSettings";
 
 export function Preparation({
   preparation,
@@ -136,7 +138,13 @@ export function Preparation({
               <select
                 id="briefing-language"
                 value={edited.language || "zh-CN"}
-                onChange={(e) => change("language", e.target.value)}
+                onChange={(e) =>
+                  changePreparation({
+                    ...edited,
+                    language: e.target.value,
+                    languageSettings: undefined,
+                  })
+                }
               >
                 {INTERVIEW_LANGUAGES.map((item) => (
                   <option value={item.id} key={item.id}>
@@ -146,9 +154,23 @@ export function Preparation({
               </select>
             </div>
           </div>
+          <LanguageSettings
+            value={edited.languageSettings}
+            fallback={edited.language || "zh-CN"}
+            onChange={(v) => change("languageSettings", v)}
+          />
           <p className="storage-note">
             时长用于问题数量和追问预算；超时后保留正在输入的回答，停止新增追问。
           </p>
+          {edited.interviewMode && edited.interviewMode !== "text" && (
+            <MediaInput
+              deviceOnly
+              key={edited.interviewMode}
+              kind={edited.interviewMode}
+              language={edited.language}
+              disabled={Boolean(busy)}
+            />
+          )}
           <p className="storage-note">
             JD 资历提取建议：{setupLabel(SENIORITIES, proposal.seniority)}
             {proposal.seniorityEvidence

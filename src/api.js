@@ -29,6 +29,8 @@ export async function api(
     throw new Error("API 响应无法解析，请重试");
   }
   if (!response.ok) {
+    if (data.code === "ACCESS_REQUIRED" && typeof window !== "undefined")
+      window.dispatchEvent(new Event("access-expired"));
     const error = new Error(data.error || "服务请求失败");
     error.status = response.status;
     error.details = data.details;

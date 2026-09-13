@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api";
 import { pollJob } from "../jobs";
+import { ModelRouting } from "./ModelRouting";
 export function ModelProfiles({ saved, onSave, close }) {
   const [profiles, setProfiles] = useState([]),
     [name, setName] = useState(""),
@@ -45,6 +46,7 @@ export function ModelProfiles({ saved, onSave, close }) {
   return (
     <details className="utility-panel">
       <summary>多个模型档案与真实供应商验收</summary>
+      <ModelRouting current={saved} />
       <p>
         先保存上方模型，再将当前配置另存为档案。长期 Key 可选用 Windows
         凭据管理器保存，不写入 SQLite 或备份。
