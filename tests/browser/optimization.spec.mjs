@@ -166,7 +166,7 @@ test("video audio-only ASR needs separate upload consent and confirmation before
   ).toBe(true);
   await page.goto("/");
   await page.getByRole("button", { name: "模拟面试", exact: true }).click();
-  await page.getByText("视频面试控制台", { exact: true }).click();
+  await expect(page.locator("details.video-input")).toHaveAttribute("open", "");
   await page
     .getByRole("checkbox", { name: "允许摄像头与麦克风录制", exact: true })
     .check();

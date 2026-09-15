@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validatePreparation, validateAnswer } from "../shared/analyze.mjs";
-import { initialWorkspace } from "../src/state.js";
+import {
+  initialWorkspace,
+  createPreparation,
+  isPreparationCurrent,
+  loadWorkspace,
+} from "../src/state.js";
 import { applyJobResult } from "../src/jobResults.js";
 import {
   prepareInterview,
@@ -11,6 +16,48 @@ import {
 } from "../server/provider.mjs";
 import { confirmedContext, fixtureFetch, config, input } from "./fixtures.mjs";
 import { trendGroups } from "../src/sessionSummary.js";
+
+test("video choice survives model extraction, old job templates and workspace restoration", () => {
+  const draft = {
+    ...initialWorkspace().draft,
+    jd: input.jd,
+    resume: input.resume,
+    interviewMode: "video",
+  };
+  const proposal = {
+    ...confirmedContext(input).briefing,
+    confirmed: false,
+    interviewMode: "text",
+  };
+  const fromModel = applyJobResult(
+    { ...initialWorkspace(), draft },
+    { id: "video-briefing", operation: "briefing", input: draft },
+    proposal,
+  );
+  const fromTemplate = createPreparation(draft, proposal);
+  for (const preparation of [fromModel.preparation, fromTemplate]) {
+    assert.equal(preparation.edited.interviewMode, "video");
+    assert.equal(preparation.proposal.interviewMode, "text");
+    assert.ok(isPreparationCurrent(preparation, draft));
+    assert.equal(
+      isPreparationCurrent(preparation, { ...draft, interviewMode: "voice" }),
+      false,
+    );
+    const restored = loadWorkspace({
+      getItem: () =>
+        JSON.stringify({ ...initialWorkspace(), draft, preparation }),
+    });
+    assert.equal(restored.draft.interviewMode, "video");
+    assert.equal(restored.preparation.edited.interviewMode, "video");
+    assert.equal(
+      validatePreparation({
+        ...draft,
+        briefing: { ...preparation.edited, confirmed: true },
+      }).interviewMode,
+      "video",
+    );
+  }
+});
 
 test("confirmed mode/language survive prepare, session, analyze/review and differing languages split trends", async () => {
   const context = validatePreparation(

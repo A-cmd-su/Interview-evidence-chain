@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AsrUpload } from "./AsrUpload";
+import { VideoOff, Download } from "lucide-react";
+import { QuestionReadout } from "./QuestionReadout";
 
 export function MediaInput({
   kind = "voice",
@@ -8,8 +10,12 @@ export function MediaInput({
   disabled,
   onActiveChange,
   deviceOnly = false,
+  question,
+  questionLanguage = language,
 }) {
   const camera = kind === "video";
+  const [expanded, setExpanded] = useState(camera || deviceOnly);
+  const [extension, setExtension] = useState("webm");
   const state = useRef({
     generation: 0,
     stream: null,
@@ -112,8 +118,8 @@ export function MediaInput({
       return;
     }
     clearInterval(s.timer);
-    s.speech?.stop();
     s.stopping = true;
+    s.speech?.stop();
     setPhase("stopping");
     if (s.audioRecorder?.state === "recording") s.audioRecorder.stop();
     s.recorder.stop();
@@ -234,6 +240,7 @@ export function MediaInput({
       recorder.onstop = async () => {
         if (generation !== s.generation) return;
         const blob = new Blob(chunks, { type: recorder.mimeType });
+        setExtension(recorder.mimeType.includes("mp4") ? "mp4" : "webm");
         if (s.audioRecorder?.state === "recording") s.audioRecorder.stop();
         const audio = camera ? await audioDone : blob;
         if (generation !== s.generation) return;
@@ -311,7 +318,11 @@ export function MediaInput({
     }
   }
   return (
-    <details className={camera ? "video-input" : "voice-input"}>
+    <details
+      className={camera ? "video-input" : "voice-input"}
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
       <summary>
         {deviceOnly
           ? "面试前设备检查"
@@ -324,6 +335,13 @@ export function MediaInput({
           ? "先测试麦克风音量与摄像头。测试最多30秒，不录制、不调用模型。"
           : "每段最多3分钟。媒体只留在本页，切题或离开面试页会清理。评分只发送确认后的文字；不分析表情、情绪或性格。"}
       </p>
+      {question && !deviceOnly && (
+        <QuestionReadout
+          text={question}
+          language={questionLanguage}
+          disabled={active || disabled || uploading}
+        />
+      )}
       <label className="consent">
         <input
           type="checkbox"
@@ -386,16 +404,33 @@ export function MediaInput({
         )}
       </div>
       {camera && (
-        <div className="video-stage">
-          <video
-            ref={live}
-            autoPlay
-            muted
-            playsInline
-            aria-label="摄像头预览"
-          />
+        <div className={url ? "video-stage has-playback" : "video-stage"}>
+          <div className="video-preview">
+            <video
+              ref={live}
+              autoPlay
+              muted
+              playsInline
+              aria-label="摄像头预览"
+            />
+            {!active && (
+              <div className="video-placeholder">
+                <VideoOff size={28} aria-hidden="true" />
+                <b>摄像头未开启</b>
+                <span>允许访问后，点击测试设备或开始录制</span>
+              </div>
+            )}
+            {active && (
+              <span className="video-live-label">
+                {phase === "recording" ? "● 录制中" : "设备预览"}
+              </span>
+            )}
+          </div>
           {url && (
-            <video src={url} controls playsInline aria-label="录制回放" />
+            <div className="video-playback">
+              <video src={url} controls playsInline aria-label="录制回放" />
+              <small>本题录像 · 回放核对后再提交文字</small>
+            </div>
           )}
         </div>
       )}
@@ -418,7 +453,9 @@ export function MediaInput({
                 ? "正在生成回放…"
                 : deviceOnly
                   ? "设备未启用"
-                  : "录制已停止；可以校对文字"}
+                  : url
+                    ? "录制已停止；可以回放并校对文字"
+                    : "准备就绪，点击开始录制"}
       </p>
       <div className="button-row">
         {active ? (
@@ -446,6 +483,16 @@ export function MediaInput({
               </button>
             )}
           </>
+        )}
+        {url && !active && (
+          <a
+            className="secondary media-download"
+            href={url}
+            download={`interview-${camera ? "video" : "audio"}.${extension}`}
+          >
+            <Download size={16} aria-hidden="true" />
+            下载本题{camera ? "录像" : "录音"}
+          </a>
         )}
         {url && (
           <button

@@ -1,4 +1,9 @@
-import { beginSession, questionState, acceptAnswer } from "./state.js";
+import {
+  beginSession,
+  questionState,
+  acceptAnswer,
+  createPreparation,
+} from "./state.js";
 import { difficultySnapshot } from "../shared/difficulty.mjs";
 export function applyJobResult(w, pending, result) {
   if (w.appliedJobs?.includes(pending.id)) return { ...w, pending: null };
@@ -9,7 +14,7 @@ export function applyJobResult(w, pending, result) {
   };
   const context = pending.input;
   if (pending.operation === "briefing")
-    next.preparation = { source: context, proposal: result, edited: result };
+    next.preparation = createPreparation(context, result);
   if (pending.operation === "resume") {
     const segments =
       w.draft.resumeDocument?.text === context.resume

@@ -1,12 +1,24 @@
 import React from "react";
 import { Preparation } from "./Preparation";
 import { ResumeReview } from "./ResumeReview";
-import { ArrowRight, Upload, CheckCheck, ScanText, Route } from "lucide-react";
+import {
+  ArrowRight,
+  Upload,
+  CheckCheck,
+  ScanText,
+  Route,
+  Video,
+  Mic,
+  Keyboard,
+} from "lucide-react";
+import { INTERVIEW_MODES } from "../../shared/interviewSetup.mjs";
+import { MediaInput } from "./MediaInput";
 import {
   DIFFICULTIES,
   DEFAULT_DIFFICULTY,
   difficultyLabel,
 } from "../../shared/difficulty.mjs";
+const MODE_ICONS = { text: Keyboard, voice: Mic, video: Video };
 
 export function Workspace({
   draft,
@@ -105,6 +117,42 @@ export function Workspace({
           </button>
         </div>
       </section>
+      <fieldset className="interview-mode-picker" disabled={Boolean(busy)}>
+        <legend>选择面试方式</legend>
+        <p>
+          先选择回答方式，再校对岗位与简历。视频面试支持设备检查、录制回放和转写校对。
+        </p>
+        <div className="interview-mode-options">
+          {INTERVIEW_MODES.map((mode) => {
+            const Icon = MODE_ICONS[mode.id];
+            return (
+              <label className="interview-mode-option" key={mode.id}>
+                <input
+                  type="radio"
+                  name="interview-mode"
+                  value={mode.id}
+                  checked={(draft.interviewMode || "text") === mode.id}
+                  onChange={() => update("interviewMode", mode.id)}
+                  aria-label={mode.label}
+                />
+                <Icon size={22} aria-hidden="true" />
+                <span>
+                  <b>{mode.label}</b>
+                  <small>{mode.guidance}</small>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+      {draft.interviewMode === "video" && (
+        <div className="video-preflight">
+          <MediaInput deviceOnly kind="video" disabled={Boolean(busy)} />
+          <p className="storage-note">
+            完成设备检查后，填写下方资料并点击“提取岗位信息，开始校对”。
+          </p>
+        </div>
+      )}
       <div className="section-heading">
         <div>
           <span className="eyebrow">MAKE IT PERSONAL</span>

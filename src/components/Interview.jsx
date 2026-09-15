@@ -49,10 +49,18 @@ export function Interview({
     : { continue: true };
   const ended = question.attempts.length > 0 && !question.ready;
   return (
-    <div className="page">
+    <div
+      className={
+        interviewMode === "video" ? "page video-interview-page" : "page"
+      }
+    >
       <div className="interview-head">
         <div>
-          <span className="number-label">02 / THINK OUT LOUD</span>
+          <span className="number-label">
+            {interviewMode === "video"
+              ? "视频面试 · 录制、校对与证据评估"
+              : "02 / THINK OUT LOUD"}
+          </span>
           <h2>{session.title}</h2>
           {remaining !== null && (
             <p role="timer">
@@ -169,6 +177,26 @@ export function Interview({
                   if (!mediaActive) submit();
                 }}
               >
+                {interviewMode === "video" && (
+                  <VideoInput
+                    key={session.id + question.id + question.prompt}
+                    onActiveChange={setMediaActive}
+                    disabled={Boolean(busy)}
+                    language={language}
+                    question={question.prompt}
+                    questionLanguage={
+                      session.briefing?.languageSettings?.questionLanguage ||
+                      session.language ||
+                      language
+                    }
+                    onConfirm={changeAnswer}
+                  />
+                )}
+                {interviewMode === "video" && (
+                  <p className="storage-note">
+                    校对转写后确认填入下方回答，再提交评估。也可以直接输入文字。
+                  </p>
+                )}
                 <label className="sr-only" htmlFor="answer">
                   你的回答
                 </label>
@@ -200,15 +228,8 @@ export function Interview({
                     <ArrowRight size={16} />
                   </button>
                 </div>
-                {interviewMode === "video" ? (
-                  <VideoInput
-                    key={session.id + question.id + question.prompt}
-                    onActiveChange={setMediaActive}
-                    disabled={Boolean(busy)}
-                    language={language}
-                    onConfirm={changeAnswer}
-                  />
-                ) : interviewMode === "voice" ? (
+                {interviewMode === "video" ? null : interviewMode ===
+                  "voice" ? (
                   <VoiceInput
                     key={session.id + question.id + question.prompt}
                     onActiveChange={setMediaActive}
@@ -242,9 +263,9 @@ export function Interview({
               </div>
             )}
             <div className="privacy">
-              {session.interviewMode === "video"
+              {interviewMode === "video"
                 ? "视频只用于本页回看；评分只发送你确认后的文字。"
-                : session.interviewMode === "voice"
+                : interviewMode === "voice"
                   ? "录音只用于本页回听；评分只发送你确认后的文字。"
                   : "回答会自动保存到工作区。"}{" "}
               每次提交通常包含初评与语义复核两次模型调用，均可能计费。

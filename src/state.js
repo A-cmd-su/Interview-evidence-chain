@@ -22,6 +22,16 @@ export const initialWorkspace = () => ({
   selected: null,
   done: {},
 });
+export function createPreparation(context, proposal) {
+  return {
+    source: context,
+    proposal,
+    edited: {
+      ...proposal,
+      interviewMode: context.interviewMode || "text",
+    },
+  };
+}
 export function isPreparationCurrent(preparation, draft) {
   return Boolean(
     preparation?.source &&
@@ -31,7 +41,9 @@ export function isPreparationCurrent(preparation, draft) {
     Array.isArray(preparation.edited.capabilities) &&
     ["jd", "resume", "difficulty"].every(
       (key) => preparation.source[key] === draft[key],
-    ),
+    ) &&
+    (preparation.source.interviewMode || "text") ===
+      (draft.interviewMode || "text"),
   );
 }
 export function loadWorkspace(storage) {

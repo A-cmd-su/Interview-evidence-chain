@@ -266,7 +266,7 @@ button svg {
   gap: 10px;
   align-items: center;
   padding: 15px 12px;
-  background: #222a1d;
+  background: #e6ecef;
   border-radius: 4px;
 }
 .connection b {
@@ -2045,9 +2045,12 @@ main {
 }
 .video-stage {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin: 16px 0;
+}
+.video-stage.has-playback {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .video-stage video {
   display: block;
@@ -3034,5 +3037,142 @@ h3 {
   textarea,
   select {
     transition: none !important;
+  }
+}
+
+.interview-mode-picker {
+  margin: 24px 0;
+}
+.interview-mode-picker legend {
+  font-size: 18px;
+  font-weight: 650;
+}
+.interview-mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.interview-mode-option {
+  display: grid;
+  grid-template-columns: 18px 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.interview-mode-option input {
+  accent-color: var(--blue-600);
+  margin: 5px 0 0;
+}
+.interview-mode-option > svg {
+  color: var(--blue-600);
+}
+.interview-mode-option b,
+.interview-mode-option small {
+  display: block;
+}
+.interview-mode-option small {
+  margin-top: 8px;
+  color: var(--muted);
+}
+.interview-mode-option:has(input:checked) {
+  border-color: var(--blue-600);
+  background: var(--blue-50);
+}
+.interview-mode-option:focus-within {
+  outline: 2px solid var(--blue-600);
+  outline-offset: 2px;
+}
+.video-preflight {
+  padding: 0 18px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.video-preflight .video-input,
+.video-interview-page .video-input {
+  border: 0;
+  margin: 0;
+}
+.video-preview {
+  position: relative;
+  min-width: 0;
+}
+.video-stage .video-preview video,
+.video-stage .video-playback video {
+  background: var(--slate-900);
+}
+.video-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+  color: #e2e8f0;
+}
+.video-placeholder span {
+  font-size: 12px;
+  color: #cbd5e1;
+}
+.video-live-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: var(--slate-900);
+  color: #fff;
+  font-size: 12px;
+}
+.video-playback small {
+  display: block;
+  padding: 8px 12px;
+  color: #e2e8f0;
+}
+.media-download {
+  text-decoration: none;
+}
+.question-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+}
+.question-readout small {
+  color: var(--muted);
+  flex: 1 1 200px;
+}
+@media (max-width: 1000px) {
+  .interview-mode-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .video-interview-page .interview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .video-interview-page .question-list {
+    display: flex;
+    overflow: auto;
+    border: 0;
+    gap: 8px;
+  }
+  .video-interview-page .question-list > .eyebrow {
+    display: none;
+  }
+  .video-interview-page .question-list button {
+    flex: 0 0 160px;
+    padding: 10px;
+  }
+}
+@media (max-width: 760px) {
+  .video-stage.has-playback {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

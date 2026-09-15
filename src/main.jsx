@@ -25,6 +25,7 @@ import {
   followQuestion,
   beginSession,
   isPreparationCurrent,
+  createPreparation,
 } from "./state";
 import { ModelSettings } from "./components/ModelSettings";
 import { SourceModal } from "./components/Modal";
@@ -295,11 +296,7 @@ function App() {
     if (template) {
       setWorkspace((w) => ({
         ...w,
-        preparation: {
-          source: context,
-          proposal: template.briefing,
-          edited: template.briefing,
-        },
+        preparation: createPreparation(context, template.briefing),
       }));
       notify("已复用相同岗位的标签，请校对本次设置");
       return;
