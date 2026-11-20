@@ -56,6 +56,7 @@ test("production app assets and login work, authenticated drafts save under same
   await expect(
     page.getByRole("heading", { name: "先连接模型，再开始面试" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "打开模型设置", exact: true }).click();
   await page
     .getByLabel("API 地址", { exact: false })
     .fill("http://127.0.0.1:8798/v1");

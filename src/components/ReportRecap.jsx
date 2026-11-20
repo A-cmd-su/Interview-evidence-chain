@@ -1,5 +1,5 @@
 import React from "react";
-export function ReportRecap({ report, goPlan }) {
+export function ReportRecap({ report, goPlan, readOnly = false }) {
   const supported = report.scores.filter((s) => s.status === "supported"),
     disputed = report.scores.filter((s) =>
       ["semantic_unsupported", "semantic_uncertain"].includes(s.status),
@@ -17,9 +17,11 @@ export function ReportRecap({ report, goPlan }) {
         <>
           <b>{priority.title}</b>
           <p>{priority.criterion}</p>
-          <button className="secondary" onClick={goPlan}>
-            进入针对性训练
-          </button>
+          {!readOnly && (
+            <button className="secondary" onClick={goPlan}>
+              进入针对性训练
+            </button>
+          )}
         </>
       )}
       <p>

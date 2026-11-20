@@ -47,6 +47,7 @@ const SessionReport = lazy(() =>
   })),
 );
 import { availableSessions } from "./sessionSummary";
+import { sampleReport } from "./sampleReport";
 import { validatePreparation } from "../shared/analyze.mjs";
 import {
   DEFAULT_DIFFICULTY,
@@ -79,6 +80,8 @@ function App() {
   const [page, setPage] = useState("workspace"),
     [config, setConfig] = useState(null),
     [modelOpen, setModelOpen] = useState(false),
+    [sampleOpen, setSampleOpen] = useState(false),
+    [sampleSource, setSampleSource] = useState(null),
     [configLoaded, setConfigLoaded] = useState(false);
   const [reportView, setReportView] = useState("session"),
     [summarySessionId, setSummarySessionId] = useState(null);
@@ -101,8 +104,6 @@ function App() {
         if (alive) {
           setConfig(r.config);
           setConfigLoaded(true);
-          if (!r.config || (!r.config.hasKey && !isLocalModel(r.config)))
-            setModelOpen(true);
         }
       })
       .catch((e) => {
@@ -494,6 +495,7 @@ function App() {
     setConfig(value);
     setConsent(false);
     setBudgetGate(null);
+    setSampleOpen(false);
     notify(
       value.testedAt
         ? "模型已保存，连接测试通过"
@@ -533,13 +535,50 @@ function App() {
         <p>模型设置会从本机持久化配置恢复，Key 不写入浏览器。</p>
       </div>
     );
+  if (!configUsable && sampleOpen)
+    return (
+      <div className="sample-shell">
+        <div className="sample-bar" role="note">
+          <div>
+            <b>示例数据 · 只读</b>
+            <p>
+              合成的岗位、回答与报告，用于在未配置模型时预览产品。它不针对你的简历，也不会保存。
+            </p>
+          </div>
+          <button className="secondary" onClick={() => setSampleOpen(false)}>
+            返回启动页
+          </button>
+        </div>
+        <main id="main">
+          <Suspense fallback={<p role="status">正在加载示例报告…</p>}>
+            <Report
+              readOnly
+              startSetup={() => setSampleOpen(false)}
+              report={sampleReport}
+              records={[]}
+              openReport={() => {}}
+              source={setSampleSource}
+              goPlan={() => {}}
+              practice={() => {}}
+              goSession={() => {}}
+            />
+          </Suspense>
+        </main>
+        {sampleSource && (
+          <SourceModal
+            source={sampleSource}
+            close={() => setSampleSource(null)}
+          />
+        )}
+      </div>
+    );
   if (!configUsable)
     return (
       <div className="app startup-model">
         <div className="page access-page">
           <h1>先连接模型，再开始面试</h1>
           <p>
-            为了避免资料在模型未准备好时进入页面，请先保存一个模型配置。配置档案和（可选的）Key会持久化保存，Key只进入系统凭据存储。
+            为了避免资料在模型未准备好时进入页面，请先保存一个模型配置。配置档案和（可选的）Key会持久化保存，Key只进入系统凭据存储。没有模型也可以先看一份示例报告。
           </p>
           {modelOpen && (
             <ModelSettings
@@ -550,9 +589,14 @@ function App() {
             />
           )}{" "}
           {!modelOpen && (
-            <button className="primary" onClick={() => setModelOpen(true)}>
-              打开模型设置
-            </button>
+            <div className="button-row">
+              <button className="primary" onClick={() => setModelOpen(true)}>
+                打开模型设置
+              </button>
+              <button className="secondary" onClick={() => setSampleOpen(true)}>
+                先看示例报告（无需模型）
+              </button>
+            </div>
           )}{" "}
           {error && (
             <p role="alert" className="error">

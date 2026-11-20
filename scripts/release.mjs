@@ -1,6 +1,20 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, writeFile, access } from "node:fs/promises";
-import { resolve, join, dirname, relative, isAbsolute } from "node:path";
+import {
+  mkdir,
+  readFile,
+  writeFile,
+  access,
+  copyFile,
+  rm,
+} from "node:fs/promises";
+import {
+  resolve,
+  join,
+  dirname,
+  basename,
+  relative,
+  isAbsolute,
+} from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFullBackup, restoreFullBackup } from "../server/fullBackup.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,6 +36,18 @@ function run(command, args, cwd = root) {
       `${command} 执行失败：${r.error?.message || r.stderr?.slice(-1800)}`,
     );
   return r.stdout.trim();
+}
+async function extractTar(archive, destination) {
+  // Git Bash's GNU tar reads Windows drive letters as rsh hosts, so archive and
+  // destination are staged into the destination's parent and passed relative.
+  const parent = dirname(destination);
+  const staging = join(parent, `.release-extract-${process.pid}.tar`);
+  await copyFile(archive, staging);
+  try {
+    run("tar", ["-xf", basename(staging), "-C", basename(destination)], parent);
+  } finally {
+    await rm(staging, { force: true });
+  }
 }
 async function build(target) {
   const npmCli =
@@ -65,7 +91,7 @@ try {
     await mkdir(app);
     const source = join(target, "release-code.tar");
     run("git", ["archive", "--format=tar", `--output=${source}`, revision]);
-    run("tar", ["-xf", source, "-C", app]);
+    await extractTar(source, app);
     await build(app);
     await restoreFullBackup(backup, join(target, "data"), password);
     const manifest = {
@@ -99,7 +125,7 @@ try {
     await mkdir(target, { recursive: false });
     const app = join(target, "app");
     await mkdir(app);
-    run("tar", ["-xf", manifest.archive, "-C", app]);
+    await extractTar(manifest.archive, app);
     await build(app);
     await restoreFullBackup(manifest.backup, join(target, "data"), password);
     console.log(

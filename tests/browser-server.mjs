@@ -66,4 +66,6 @@ http
     res.end(JSON.stringify(data));
   })
   .listen(8798, "127.0.0.1");
-createApp({ webPort: 5199 }).listen(8799, "127.0.0.1");
+const apiPort = Number(process.env.TEST_MOCK_PORT || 8799);
+const webPort = Number(process.env.TEST_WEB_PORT || 5199);
+createApp({ webPort }).listen(apiPort, "127.0.0.1");

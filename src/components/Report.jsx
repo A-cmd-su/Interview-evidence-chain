@@ -23,6 +23,8 @@ export function Report({
   goSession,
   favorite,
   toggleFavorite,
+  readOnly = false,
+  startSetup,
 }) {
   const turns = [
     ...(report.input.history || []),
@@ -68,7 +70,7 @@ export function Report({
           <span>{legacy ? "历史引用覆盖" : "语义复核通过维度"}</span>
         </div>
       </div>
-      <ReportRecap report={report} goPlan={goPlan} />
+      <ReportRecap report={report} goPlan={goPlan} readOnly={readOnly} />
       {report.difficultyPolicy && (
         <details className="difficulty-policy">
           <summary>
@@ -282,12 +284,14 @@ export function Report({
               </p>
             )}
             <p>{report.followUp?.question || report.followUpReason}</p>
-            <button
-              className="secondary"
-              onClick={() => practice(null, report)}
-            >
-              重新回答这道题
-            </button>
+            {!readOnly && (
+              <button
+                className="secondary"
+                onClick={() => practice(null, report)}
+              >
+                重新回答这道题
+              </button>
+            )}
           </div>
           <div className="aside-card">
             <span className="eyebrow">REPORT SNAPSHOT</span>
@@ -308,13 +312,21 @@ export function Report({
         </aside>
       </div>
       <div className="report-footer">
-        <button className="secondary" onClick={goSession}>
-          整场复盘
-          <ArrowRight size={16} aria-hidden="true" />
-        </button>
-        <button className="primary" onClick={goPlan}>
-          开始专项训练 <ArrowRight size={17} />
-        </button>
+        {readOnly ? (
+          <button className="primary" onClick={startSetup}>
+            连接模型，开始练自己的题 <ArrowRight size={17} />
+          </button>
+        ) : (
+          <>
+            <button className="secondary" onClick={goSession}>
+              整场复盘
+              <ArrowRight size={16} aria-hidden="true" />
+            </button>
+            <button className="primary" onClick={goPlan}>
+              开始专项训练 <ArrowRight size={17} />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
